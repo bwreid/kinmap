@@ -51,6 +51,7 @@ button{font-family:inherit;cursor:pointer}
 .tbtn.primary{background:var(--accent);border-color:var(--accent-d);color:#fff}
 .tbtn.primary:hover{background:var(--accent-d)}
 .tbtn .i{font-size:15px;line-height:1}
+.tbtn.on{color:var(--accent-d);border-color:var(--accent-soft);background:var(--accent-tint)}
 .tb-div{width:1px;height:24px;background:var(--line)}
 
 /* ---------- body ---------- */

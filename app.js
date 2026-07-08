@@ -2,7 +2,7 @@
    Kinmap — app state + interactions
    ============================================================ */
 const App = (()=>{
-  const state = { selected:null, drawer:null, mode:'normal', relPair:[], relType:null, addRelation:'child' };
+  const state = { selected:null, drawer:null, mode:'normal', relPair:[], relType:null, addRelation:'child', showEmo:true };
 
   /* ---------- boot ---------- */
   function init(){
@@ -12,6 +12,7 @@ const App = (()=>{
     rerender();
     View.fit();
     wire();
+    applyEmoVisibility();
   }
   function rerender(){ View.canvas(); View.list(); }
 
@@ -321,6 +322,7 @@ const App = (()=>{
       if(a==='zin'){ View.zoomBy(1.2); updZoom(); }
       if(a==='zout'){ View.zoomBy(1/1.2); updZoom(); }
       if(a==='legend'){ document.getElementById('legend').classList.toggle('open'); }
+      if(a==='toggle-emo'){ state.showEmo=!state.showEmo; applyEmoVisibility(); }
       if(a==='new'){ newGenogram(); }
       if(a==='save'){
         if(FAM.people.length===0){ flash('Nothing to save'); return; }
@@ -465,6 +467,11 @@ const App = (()=>{
       const show=!idxCb.checked && FAM.people.length>0;
       famSec.style.display=show?'':'none';
     });
+  }
+
+  function applyEmoVisibility(){
+    document.getElementById('canvas').classList.toggle('hide-emo', !state.showEmo);
+    document.getElementById('toggle-emo-btn')?.classList.toggle('on', state.showEmo);
   }
 
   function deselectSilent(){ state.selected=null; View.selection(); }
