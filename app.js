@@ -27,7 +27,7 @@ const App = (()=>{
   function openDrawer(mode){
     state.drawer=mode;
     const d=document.getElementById('drawer');
-    d.innerHTML = mode==='add'? addForm() : inspectView();
+    d.innerHTML = mode==='add'? addForm() : mode==='edit'? editForm() : inspectView();
     d.classList.add('open');
     bindDrawer();
   }
@@ -71,6 +71,29 @@ const App = (()=>{
         + FAM.people.filter(p=>!FAM.primaryUnion(p.id)).map(p=>`<option value="p:${p.id}">${p.name} (single parent)</option>`).join('');
     }
     return FAM.people.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
+  }
+
+  /* ---------- edit-member form ---------- */
+  function editForm(){
+    const p=FAM.byId(state.selected); if(!p) return '';
+    form = { name:p.name, sex:p.sex, deceased:!!p.deceased, conn:p.conn||'bio' };
+    const seg=(opts,val,grp)=>opts.map(o=>`<button class="seg-b${o.v===val?' on':''}" data-grp="${grp}" data-v="${o.v}">${o.l}</button>`).join('');
+    const hasParents = !!FAM.parentsUnion(p.id);
+    return `
+    <div class="drawer-h"><h3>Edit ${p.name}</h3><button class="x" data-act="close">✕</button></div>
+    <div class="drawer-body">
+      <div class="fld"><label>Full name</label><input class="inp" data-f="name" value="${p.name}" placeholder="e.g. Marcus Bell" autocomplete="off"></div>
+      <div class="fld"><label>Sex / symbol</label><div class="seg" data-seg="sex">${seg([{v:'m',l:'☐ Male'},{v:'f',l:'◯ Female'},{v:'u',l:'? Unknown'}],p.sex,'sex')}</div></div>
+      <div class="fld two"><div><label>Age</label><input class="inp" data-f="age" inputmode="numeric" value="${p.age!=null?p.age:''}" placeholder="—"></div>
+        <div><label>Status</label><div class="seg" data-seg="status">${seg([{v:'living',l:'Living'},{v:'dec',l:'Deceased'}],p.deceased?'dec':'living','status')}</div></div></div>
+      <div class="fld" data-dinfo-fld style="${p.deceased?'':'display:none'}"><label>Death detail</label><input class="inp" data-f="dinfo" value="${p.dInfo||''}" placeholder="e.g. d. 2014"></div>
+      ${hasParents?`<div class="fld"><label>Biological connection</label><div class="seg" data-seg="conn">${seg([{v:'bio',l:'Biological'},{v:'adopted',l:'Adopted'},{v:'foster',l:'Foster'}],p.conn||'bio','conn')}</div></div>`:''}
+      <label class="check"><input type="checkbox" data-f="index" ${p.index?'checked':''}> Mark as index patient</label>
+    </div>
+    <div class="drawer-foot">
+      <button class="btn ghost" data-act="close">Cancel</button>
+      <button class="btn primary" data-act="save-edit">Save changes</button>
+    </div>`;
   }
 
   /* ---------- inspector ---------- */
@@ -122,6 +145,7 @@ const App = (()=>{
     </div>
     <div class="drawer-foot">
       <button class="btn ghost danger" data-act="delete">Delete</button>
+      <button class="btn ghost" data-act="edit">✎ Edit</button>
       <button class="btn primary" data-act="close">Done</button>
     </div>`;
   }
@@ -176,6 +200,24 @@ const App = (()=>{
     if(idx){ FAM.people.forEach(p=>p.index=false); np.index=true; }
     rerender(); state.selected=np.id; View.selection(); openDrawer('inspect');
     flash(np.name+' added'); Storage.autosave();
+  }
+
+  function commitEdit(){
+    const d=document.getElementById('drawer');
+    const p=FAM.byId(state.selected); if(!p) return;
+    const name=(d.querySelector('[data-f=name]').value||'').trim()||p.name;
+    const age=parseInt(d.querySelector('[data-f=age]').value,10);
+    const idx=d.querySelector('[data-f=index]').checked;
+    const dinfo=(d.querySelector('[data-f=dinfo]')?.value||'').trim();
+
+    p.name=name; p.sex=form.sex; p.deceased=form.deceased;
+    p.age=isNaN(age)?null:age;
+    if(p.deceased) p.dInfo=dinfo||'deceased'; else delete p.dInfo;
+    if(FAM.parentsUnion(p.id)) p.conn=form.conn;
+    if(idx) FAM.people.forEach(x=>x.index=(x===p)); else p.index=false;
+
+    rerender(); View.selection(); openDrawer('inspect');
+    flash(p.name+' updated'); Storage.autosave();
   }
 
   function deletePerson(id){
@@ -361,6 +403,8 @@ const App = (()=>{
       const a=b.dataset.act;
       if(a==='close') closeDrawer();
       if(a==='add') commitAdd();
+      if(a==='edit') openDrawer('edit');
+      if(a==='save-edit') commitEdit();
       if(a==='delete') deletePerson(state.selected);
       if(a==='relate-from') enterRelate(state.selected);
       if(a==='rmrel'){ }
@@ -403,7 +447,11 @@ const App = (()=>{
       d.querySelectorAll(`.seg-b[data-grp=${grp}]`).forEach(x=>x.classList.toggle('on',x===b));
       if(grp==='sex') form.sex=v;
       if(grp==='conn') form.conn=v;
-      if(grp==='status') form.deceased=(v==='dec');
+      if(grp==='status'){
+        form.deceased=(v==='dec');
+        const dinfoFld=d.querySelector('[data-dinfo-fld]');
+        if(dinfoFld) dinfoFld.style.display=form.deceased?'':'none';
+      }
       if(grp==='relation'){ form.relation=v;
         d.querySelector('[data-rel-label]').textContent={child:'Child of',sibling:'Sibling of',partner:'Partner of',parent:'Parent of'}[v]||'';
         d.querySelector('[data-f=target]').innerHTML=targetOptions(v);
