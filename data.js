@@ -127,15 +127,18 @@ const SYM = (()=>{
     }
   }
 
-  /* ---- emotional line between two node centers (canvas overlay) ----
-     Drawn as a quadratic bezier so ties can bow around intervening
-     members instead of cutting straight through them; `bow` (signed
-     perpendicular offset for the control point) comes from the layout
-     engine's collision check. bow===0 degenerates to a straight line. */
+  /* ---- emotional line between two node anchor points (canvas overlay) ----
+     x1,y1,x2,y2 are the tie's start/end anchors (the top corner of each
+     node's symbol facing the other person), already clear of the node —
+     see engine.js's cornerAnchor(). Drawn as a quadratic bezier so ties
+     can bow around intervening members instead of cutting straight
+     through them; `bow` (signed perpendicular offset for the control
+     point) comes from the layout engine's collision check. bow===0
+     degenerates to a straight line. */
   function emotional(key, x1,y1,x2,y2, bow=0){
     const dx=x2-x1, dy=y2-y1, len=Math.hypot(dx,dy)||1;
     const ux=dx/len, uy=dy/len, px=-uy, py=ux;       // unit + perpendicular (chord-based)
-    const trim=33;                                   // keep clear of symbols
+    const trim=4;                                    // small gap off the corner anchor
     const ax=x1+ux*trim, ay=y1+uy*trim, bx=x2-ux*trim, by=y2-uy*trim;
     const mx=(ax+bx)/2, my=(ay+by)/2;
     const ccx=mx+px*bow, ccy=my+py*bow;              // bezier control point

@@ -410,10 +410,20 @@ const View = (()=>{
     return sign*(blocked?clear:base);
   }
 
+  /* anchor a tie at the node's top-left or top-right corner (whichever
+     faces the other person) instead of its center, so the curve leaves
+     from up near the roofline and reads as a clean upward arc */
+  function cornerAnchor(p, other){
+    const R=LC.S/2+6;
+    const sx = other.x>=p.x ? 1 : -1;
+    return { x:p.x+sx*R, y:p.y-R };
+  }
+
   function emotional(){
     return FAM.rels.map(r=>{ const a=POS[r.a], b=POS[r.b]; if(!a||!b) return '';
-      const bow=relBow(a,b,r.a,r.b);
-      return `<g class="emo-g" data-rel="${r.a}__${r.b}">${SYM.emotional(r.type,a.x,a.y,b.x,b.y,bow)}</g>`; }).join('');
+      const pa=cornerAnchor(a,b), pb=cornerAnchor(b,a);
+      const bow=relBow(pa,pb,r.a,r.b);
+      return `<g class="emo-g" data-rel="${r.a}__${r.b}">${SYM.emotional(r.type,pa.x,pa.y,pb.x,pb.y,bow)}</g>`; }).join('');
   }
 
   function nodes(){
