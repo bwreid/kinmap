@@ -387,9 +387,33 @@ const View = (()=>{
     return '';
   }
 
+  /* signed bow amount (perpendicular offset for the curve's control point),
+     picked to route the tie around any node whose symbol sits near the
+     straight path between a and b */
+  function relBow(a, b, aid, bid){
+    const dx=b.x-a.x, dy=b.y-a.y, len=Math.hypot(dx,dy)||1;
+    const ux=dx/len, uy=dy/len, px=-uy, py=ux;
+    let posBlock=false, negBlock=false;
+    FAM.people.forEach(p=>{
+      if(p.id===aid||p.id===bid) return;
+      const pt=POS[p.id]; if(!pt) return;
+      const vx=pt.x-a.x, vy=pt.y-a.y;
+      const t=(vx*ux+vy*uy)/len;
+      if(t<0.14||t>0.86) return;
+      const d=vx*px+vy*py;
+      if(Math.abs(d)<LC.S+16){ if(d>=0) posBlock=true; else negBlock=true; }
+    });
+    const base=Math.min(Math.max(len*0.16,18),56);
+    const clear=Math.max(base, LC.S+24);
+    if(posBlock && !negBlock) return -clear;
+    if(negBlock && !posBlock) return clear;
+    return posBlock&&negBlock ? clear : base; // both/neither blocked: bow out the default side
+  }
+
   function emotional(){
     return FAM.rels.map(r=>{ const a=POS[r.a], b=POS[r.b]; if(!a||!b) return '';
-      return `<g class="emo-g" data-rel="${r.a}__${r.b}">${SYM.emotional(r.type,a.x,a.y,b.x,b.y)}</g>`; }).join('');
+      const bow=relBow(a,b,r.a,r.b);
+      return `<g class="emo-g" data-rel="${r.a}__${r.b}">${SYM.emotional(r.type,a.x,a.y,b.x,b.y,bow)}</g>`; }).join('');
   }
 
   function nodes(){
@@ -409,8 +433,8 @@ const View = (()=>{
     lastBounds = Layout.compute();
     world.innerHTML =
       `<g class="layer-struct">${structural()}</g>`+
-      `<g class="layer-emo">${emotional()}</g>`+
-      `<g class="layer-nodes">${nodes()}</g>`;
+      `<g class="layer-nodes">${nodes()}</g>`+
+      `<g class="layer-emo">${emotional()}</g>`;
     selection();
   }
 

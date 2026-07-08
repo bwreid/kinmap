@@ -90,6 +90,8 @@ button{font-family:inherit;cursor:pointer}
 
 /* genogram svg styling */
 .struct{fill:none;stroke:var(--stroke);stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.layer-emo{pointer-events:none}
+#canvas.hide-emo .layer-emo{display:none}
 .emo{fill:none;stroke:var(--accent);stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
 .node{cursor:pointer}
 .node .sym{fill:var(--panel);stroke:var(--stroke);stroke-width:2.4}

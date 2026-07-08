@@ -127,42 +127,59 @@ const SYM = (()=>{
     }
   }
 
-  /* ---- emotional line between two node centers (canvas overlay) ---- */
-  function emotional(key, x1,y1,x2,y2){
+  /* ---- emotional line between two node centers (canvas overlay) ----
+     Drawn as a quadratic bezier so ties can bow around intervening
+     members instead of cutting straight through them; `bow` (signed
+     perpendicular offset for the control point) comes from the layout
+     engine's collision check. bow===0 degenerates to a straight line. */
+  function emotional(key, x1,y1,x2,y2, bow=0){
     const dx=x2-x1, dy=y2-y1, len=Math.hypot(dx,dy)||1;
-    const ux=dx/len, uy=dy/len, px=-uy, py=ux;       // unit + perpendicular
+    const ux=dx/len, uy=dy/len, px=-uy, py=ux;       // unit + perpendicular (chord-based)
     const trim=33;                                   // keep clear of symbols
     const ax=x1+ux*trim, ay=y1+uy*trim, bx=x2-ux*trim, by=y2-uy*trim;
+    const mx=(ax+bx)/2, my=(ay+by)/2;
+    const ccx=mx+px*bow, ccy=my+py*bow;              // bezier control point
     const L=Math.hypot(bx-ax,by-ay);
-    const line=(ox,oy,dash='')=>`<path class="emo" d="M${ax+px*ox} ${ay+py*oy} L${bx+px*ox} ${by+py*oy}" ${dash?`stroke-dasharray="${dash}"`:''}/>`;
-    const off=(x,y,o)=>[x+px*o, y+py*o];
-    const zig=(amp,off1=0)=>{
-      const n=Math.max(3,Math.round(L/16)); let d='';
-      for(let i=0;i<=n;i++){ const t=i/n, sx=ax+(bx-ax)*t, sy=ay+(by-ay)*t;
-        const a=(i===0||i===n)?0:(i%2?amp:-amp)+off1;
-        const X=sx+px*a, Y=sy+py*a; d+=(i?'L':'M')+X.toFixed(1)+' '+Y.toFixed(1)+' '; }
-      return `<path class="emo" d="${d}"/>`;
+
+    const qpoint=t=>{ const it=1-t;
+      return { x: it*it*ax + 2*it*t*ccx + t*t*bx, y: it*it*ay + 2*it*t*ccy + t*t*by }; };
+    const qtangent=t=>{
+      const tx=2*(1-t)*(ccx-ax)+2*t*(bx-ccx), ty=2*(1-t)*(ccy-ay)+2*t*(by-ccy);
+      const l=Math.hypot(tx,ty)||1; return { ux:tx/l, uy:ty/l, px:-ty/l, py:tx/l }; };
+
+    const line=(o,dash='')=>{
+      const n=18; let d='';
+      for(let i=0;i<=n;i++){ const t=i/n, pt=qpoint(t), tan=qtangent(t);
+        const X=pt.x+tan.px*o, Y=pt.y+tan.py*o; d+=(i?'L':'M')+X.toFixed(1)+' '+Y.toFixed(1)+' '; }
+      return `<path class="emo" fill="none" d="${d}" ${dash?`stroke-dasharray="${dash}"`:''}/>`;
     };
-    const arrow=()=>{ const a=10; const lx=bx-ux*a, ly=by-uy*a;
-      return `<path class="emo" d="M${lx+px*6} ${ly+py*6} L${bx} ${by} L${lx-px*6} ${ly-py*6}"/>`; };
+    const zig=(amp,off1=0)=>{
+      const n=Math.max(6,Math.round(L/16)); let d='';
+      for(let i=0;i<=n;i++){ const t=i/n, pt=qpoint(t), tan=qtangent(t);
+        const a=(i===0||i===n)?0:(i%2?amp:-amp)+off1;
+        const X=pt.x+tan.px*a, Y=pt.y+tan.py*a; d+=(i?'L':'M')+X.toFixed(1)+' '+Y.toFixed(1)+' '; }
+      return `<path class="emo" fill="none" d="${d}"/>`;
+    };
+    const arrow=()=>{ const tan=qtangent(1), a=10; const lx=bx-tan.ux*a, ly=by-tan.uy*a;
+      return `<path class="emo" d="M${lx+tan.px*6} ${ly+tan.py*6} L${bx} ${by} L${lx-tan.px*6} ${ly-tan.py*6}"/>`; };
     switch(key){
-      case 'close':       return line(-3,-3)+line(3,3);
-      case 'fused':       return line(-5,-5)+line(0,0)+line(5,5);
-      case 'affiliated':  return line(0,0);
-      case 'distant':     return line(0,0,'3 6');
-      case 'indifferent': return line(0,0,'2 6');
-      case 'temporary':   return line(0,0,'2 5');
+      case 'close':       return line(-3)+line(3);
+      case 'fused':       return line(-5)+line(0)+line(5);
+      case 'affiliated':  return line(0);
+      case 'distant':     return line(0,'3 6');
+      case 'indifferent': return line(0,'2 6');
+      case 'temporary':   return line(0,'2 5');
       case 'conflict':    return zig(7);
-      case 'fusedHostile':return line(-6,-6)+line(6,6)+zig(6);
+      case 'fusedHostile':return line(-6)+line(6)+zig(6);
       case 'abuse':       return zig(7)+arrow();
-      case 'neglect':     return line(0,0,'3 6')+arrow();
+      case 'neglect':     return line(0,'3 6')+arrow();
       case 'cutoff': {
-        const mx=(ax+bx)/2, my=(ay+by)/2;
-        const [a1,b1]=off(mx-ux*5,my-uy*5,10),[a2,b2]=off(mx-ux*5,my-uy*5,-10);
-        const [c1,d1]=off(mx+ux*5,my+uy*5,10),[c2,d2]=off(mx+ux*5,my+uy*5,-10);
-        return line(0,0)+`<path class="emo" d="M${a1} ${b1} L${a2} ${b2} M${c1} ${d1} L${c2} ${d2}"/>`;
+        const pt1=qpoint(0.47), tan1=qtangent(0.47), pt2=qpoint(0.53), tan2=qtangent(0.53);
+        const [a1,b1]=[pt1.x+tan1.px*10, pt1.y+tan1.py*10], [a2,b2]=[pt1.x-tan1.px*10, pt1.y-tan1.py*10];
+        const [c1,d1]=[pt2.x+tan2.px*10, pt2.y+tan2.py*10], [c2,d2]=[pt2.x-tan2.px*10, pt2.y-tan2.py*10];
+        return line(0)+`<path class="emo" d="M${a1} ${b1} L${a2} ${b2} M${c1} ${d1} L${c2} ${d2}"/>`;
       }
-      default:            return line(0,0);
+      default:            return line(0);
     }
   }
 
