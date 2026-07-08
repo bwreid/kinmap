@@ -387,27 +387,27 @@ const View = (()=>{
     return '';
   }
 
-  /* signed bow amount (perpendicular offset for the curve's control point),
-     picked to route the tie around any node whose symbol sits near the
-     straight path between a and b */
+  /* signed bow amount (perpendicular offset for the curve's control point).
+     Always bows toward -y (upward on screen) so ties arc up and away from
+     name/age labels instead of alternating above/below; the bow grows if a
+     member's symbol sits in the way along that upward side. */
   function relBow(a, b, aid, bid){
     const dx=b.x-a.x, dy=b.y-a.y, len=Math.hypot(dx,dy)||1;
     const ux=dx/len, uy=dy/len, px=-uy, py=ux;
-    let posBlock=false, negBlock=false;
+    const sign = py>0 ? -1 : 1;   // whichever perpendicular direction points upward
+    let blocked=false;
     FAM.people.forEach(p=>{
       if(p.id===aid||p.id===bid) return;
       const pt=POS[p.id]; if(!pt) return;
       const vx=pt.x-a.x, vy=pt.y-a.y;
       const t=(vx*ux+vy*uy)/len;
       if(t<0.14||t>0.86) return;
-      const d=vx*px+vy*py;
-      if(Math.abs(d)<LC.S+16){ if(d>=0) posBlock=true; else negBlock=true; }
+      const d=(vx*px+vy*py)*sign;   // distance on the side the curve bows toward
+      if(d>=0 && d<LC.S+20) blocked=true;
     });
-    const base=Math.min(Math.max(len*0.16,18),56);
-    const clear=Math.max(base, LC.S+24);
-    if(posBlock && !negBlock) return -clear;
-    if(negBlock && !posBlock) return clear;
-    return posBlock&&negBlock ? clear : base; // both/neither blocked: bow out the default side
+    const base=Math.min(Math.max(len*0.22,30),76);
+    const clear=Math.max(base, LC.S+38);
+    return sign*(blocked?clear:base);
   }
 
   function emotional(){
