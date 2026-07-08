@@ -414,7 +414,7 @@ const View = (()=>{
      faces the other person) instead of its center, so the curve leaves
      from up near the roofline and reads as a clean upward arc */
   function cornerAnchor(p, other){
-    const R=LC.S/2+6;
+    const R=LC.S/2;
     const sx = other.x>=p.x ? 1 : -1;
     return { x:p.x+sx*R, y:p.y-R };
   }
