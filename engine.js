@@ -2,8 +2,9 @@
    Kinmap — layout engine + canvas / list rendering
    ============================================================ */
 
-const LC = { S:54, COUPLE:118, NODEW:112, SIBGAP:46, ROWH:190, TOPY:110, CENTER:640 };
+const LC = { S:54, COUPLE:118, NODEW:112, SIBGAP:46, ROWH:190, TOPY:110, CENTER:640, SIDEGAP:80 };
 let POS = {};   // id -> {x,y}
+let SIDE = {};  // id -> -1 (paternal-ish) | +1 (maternal-ish) | undefined (unassigned), relative to the nearest ancestor fork
 
 /* ---------------- auto-balancing generational layout ----------------
    Strategy:
@@ -18,6 +19,10 @@ const Layout = (()=>{
 
   function orderCouple(union){               // male left, female right
     if(!union || !union.partners.length) return [];
+    // an edge sibling's own marriage may have a pinned L/R order (set by
+    // layoutDescendants) so the spouse lands on the outward side of the row —
+    // relax()'s block rebuilding must see the same order or it undoes it
+    if(union._order) return union._order.map(id=>FAM.byId(id)).filter(Boolean);
     const [a,b]=union.partners.map(id=>FAM.byId(id));
     if(!a) return [];
     if(!b) return [a];
@@ -52,19 +57,41 @@ const Layout = (()=>{
     seen.add(union.id);
     const ord = orderCouple(union);
     if(!ord.length) return;
+    const p0=POS[ord[0].id], p1=ord[1]&&POS[ord[1].id];
+    // both already placed by an earlier pass (e.g. reached again via a
+    // secondary tree's childUnion lookup) — a genuinely redundant re-visit
+    if(p0 && p1) return;
     const y = genY(FAM.byId(ord[0].id).gen);
-    if(ord.length===2){ POS[ord[0].id]={x:centerX-LC.COUPLE/2,y}; POS[ord[1].id]={x:centerX+LC.COUPLE/2,y}; }
-    else POS[ord[0].id]={x:centerX,y};
+    if(ord.length===2){
+      // one side already placed (e.g. an ancestor's other marriage, fanned
+      // out from that already-positioned ancestor) — anchor to it instead
+      // of re-deriving a fresh centre, so the placed partner doesn't move
+      if(p0) POS[ord[1].id]={x:centerX,y};
+      else if(p1) POS[ord[0].id]={x:centerX,y};
+      else { POS[ord[0].id]={x:centerX-LC.COUPLE/2,y}; POS[ord[1].id]={x:centerX+LC.COUPLE/2,y}; }
+    } else if(!p0) POS[ord[0].id]={x:centerX,y};
+    const cx = ord.length===2 ? (POS[ord[0].id].x+POS[ord[1].id].x)/2 : POS[ord[0].id].x;
 
     const kids = union.children.filter(k=>FAM.byId(k));
     if(!kids.length) return;
     const widths = kids.map(cid=>{ const cu=childUnion(cid,union); return cu?subtreeWidth(cu):LC.NODEW; });
     const total = widths.reduce((a,b)=>a+b,0) + LC.SIBGAP*(kids.length-1);
-    let cur = centerX - total/2;
+    let cur = cx - total/2;
     kids.forEach((cid,i)=>{
       const cx = cur + widths[i]/2;
       const cu = childUnion(cid, union);
-      if(cu) layoutDescendants(cu, cx, depth+1, seen);
+      if(cu){
+        // a sibling at the outer edge of the row: pin the blood relative to
+        // the inward side (facing their siblings) and the married-in spouse
+        // to the outward side, so the spouse's own ancestor line doesn't
+        // have to cross back in through the sibling bus to reach them
+        if(kids.length>1 && cu.partners.length===2){
+          const other=cu.partners.find(id=>id!==cid);
+          if(i===0) cu._order=[other,cid];
+          else if(i===kids.length-1) cu._order=[cid,other];
+        }
+        layoutDescendants(cu, cx, depth+1, seen);
+      }
       else POS[cid]={x:cx, y:genY(FAM.byId(cid).gen)};
       cur += widths[i] + LC.SIBGAP;
     });
@@ -87,6 +114,27 @@ const Layout = (()=>{
     return Math.max(w, LC.COUPLE);
   }
 
+  /* ---- an ancestor's OTHER marriages (besides the one leading down to the
+     grandchild we climbed up from) ----
+     Without this, e.g. a great-grandmother's exes/later husbands are left
+     for the generic secondary-tree fallback, which has no notion of family
+     side and can seed them anywhere — including wedged into the opposite
+     side of the tree. Fan them out from the already-placed ancestor, on the
+     same side their own branch belongs to, and recurse into their kids so
+     half-sibling branches (e.g. a step-aunt) land there too. */
+  function fanExtraUnions(personId, primaryUnion, side){
+    const extra = FAM.unions.filter(u=>u!==primaryUnion && u.partners.length===2 && u.partners.includes(personId));
+    let n=0;
+    extra.forEach(u=>{
+      const otherId = u.partners.find(id=>id!==personId);
+      if(POS[otherId]) return;
+      n++;
+      layoutDescendants(u, POS[personId].x + side*n*LC.COUPLE, 0, new Set());
+      SIDE[otherId]=side;
+      u.children.forEach(cid=>{ if(FAM.byId(cid)) SIDE[cid]=side; });
+    });
+  }
+
   function layoutAncestors(personId, centerX, side, depth, seen){
     if(depth>10) return;
     seen = seen || new Set();
@@ -101,10 +149,15 @@ const Layout = (()=>{
     else POS[ord[0].id]={x:centerX,y};
     // aunts/uncles fan toward the outer side of the diagram
     const sibs = pu.children.filter(k=>k!==personId && FAM.byId(k));
-    sibs.forEach((k,i)=>{ POS[k]={x:centerX + side*(i+1)*(LC.NODEW+LC.SIBGAP), y:genY(FAM.byId(k).gen)}; });
-    // recurse up through each parent, splaying the two grandparent lines apart
+    sibs.forEach((k,i)=>{ POS[k]={x:centerX + side*(i+1)*(LC.NODEW+LC.SIBGAP), y:genY(FAM.byId(k).gen)}; SIDE[k]=side; });
+    // recurse up through each parent, splaying the two grandparent lines apart —
+    // dir still splays further-up ancestors, but both parents of this couple
+    // share the descendant's side for SIDE-tagging purposes (they're one
+    // couple, not two separate family sides, at this level)
     ord.forEach((par,i)=>{
       const dir = ord.length===2 ? (i===0?-1:1) : side;
+      SIDE[par.id]=side;
+      fanExtraUnions(par.id, pu, side);
       layoutAncestors(par.id, POS[par.id].x, dir, depth+1, seen);
     });
   }
@@ -129,6 +182,32 @@ const Layout = (()=>{
       }
       comp.forEach(id=>{ if(!visited.has(id)){ path.push(id); visited.add(id); } });
       return path;
+    }
+    /* ---- a hub with 3+ marriages (one person connected to every other
+       member of the component, none of whom are connected to each other) ----
+       Only the two immediate neighbours of the hub avoid the up-and-over
+       line routing, so put whichever spouses actually have children there —
+       a childless ex doesn't need the clear vertical space, but a spouse
+       with kids does, otherwise the child's own descent line lands wedged
+       between unrelated exes instead of at the edge of the family. */
+    function orderStarHub(hub, leaves){
+      const hasKids=id=>FAM.unions.some(u=>u.partners.includes(hub)&&u.partners.includes(id)&&u.children.length);
+      const withKids=leaves.filter(hasKids), withoutKids=leaves.filter(id=>!hasKids(id));
+      const innerLeft=withKids[0]||null, innerRight=withKids[1]||null;
+      const rest=withKids.slice(2).concat(withoutKids);
+      const outerLeft=[], outerRight=[];
+      // prefer whichever side is less occupied so far, rather than raw index
+      // parity — a hub with only one kid-bearing spouse has a fully free
+      // side that a childless leftover should land on first, not alternate
+      // onto the already-occupied side
+      let leftCount=innerLeft?1:0, rightCount=innerRight?1:0;
+      rest.forEach(id=>{
+        if(leftCount<=rightCount){ outerLeft.push(id); leftCount++; }
+        else { outerRight.push(id); rightCount++; }
+      });
+      const left=(innerLeft?[innerLeft]:[]).concat(outerLeft);
+      const right=(innerRight?[innerRight]:[]).concat(outerRight);
+      return [...left.slice().reverse(), hub, ...right];
     }
     // how many 2-person unions a person heads (i.e. is this a multi-marriage "hub"?)
     function partnerCount2(id){
@@ -186,8 +265,10 @@ const Layout = (()=>{
         while(stack.length){ const c=stack.pop(); if(seen.has(c)) continue; seen.add(c); comp.push(c);
           adj[c].forEach(n=>{ if(!seen.has(n)) stack.push(n); }); }
         let ordered;
+        const hub=comp.find(id=>adj[id].length===comp.length-1);
         if(comp.length===1) ordered=comp;
         else if(comp.length===2){ const u=FAM.unions.find(x=>x.partners.includes(comp[0])&&x.partners.includes(comp[1])); ordered=u?orderCouple(u).map(o=>o.id):comp; }
+        else if(hub && comp.every(id=>id===hub || adj[id].length===1)) ordered=orderStarHub(hub, comp.filter(id=>id!==hub));
         else ordered=orderPath(comp, adj);
         blocks.push(makeBlock(ordered));
       });
@@ -209,19 +290,58 @@ const Layout = (()=>{
       });
       return terms.length ? terms.reduce((a,b)=>a+b,0)/terms.length : blockCenter(b);
     }
+    // which family side a block belongs to (paternal/maternal-ish, tagged
+    // during the ancestor climb) — averages in case a block mixes a tagged
+    // ancestor with an untagged married-in spouse
+    function blockSide(b){
+      const sides=b.ids.map(id=>SIDE[id]).filter(s=>s!=null);
+      return sides.length ? sides.reduce((a,s)=>a+s,0)/sides.length : 0;
+    }
+    function deoverlap(blocks){
+      blocks.forEach(b=>{ b.c=blockCenter(b); b.side=blockSide(b); });
+      // side is the primary sort key so opposite-side family branches never
+      // get interleaved by a coincidental desiredCenter pull — within the
+      // same side, fall back to the usual centre-based order
+      blocks.sort((a,b)=> (a.side-b.side) || (a.c-b.c) );
+      for(let i=1;i<blocks.length;i++){
+        const prev=blocks[i-1], cur=blocks[i];
+        // extra breathing room right where two different family sides meet
+        const extra = cur.side>prev.side ? LC.SIDEGAP : 0;
+        const minGap=prev.half+cur.half+LC.NODEW+extra;
+        if(cur.c-prev.c < minGap){ cur.c=prev.c+minGap; setBlock(cur,cur.c); }
+      }
+    }
     for(let pass=0; pass<20; pass++){
       gens.forEach(g=>{
         const blocks=buildBlocks(g);
         blocks.forEach(b=> setBlock(b, desiredCenter(b)) );
-        blocks.forEach(b=> b.c=blockCenter(b) );
-        blocks.sort((a,b)=>a.c-b.c);
-        for(let i=1;i<blocks.length;i++){
-          const prev=blocks[i-1], cur=blocks[i];
-          const minGap=prev.half+cur.half+LC.NODEW;
-          if(cur.c-prev.c < minGap){ cur.c=prev.c+minGap; setBlock(cur,cur.c); }
-        }
+        deoverlap(blocks);
       });
     }
+    /* ---- final pass: settle blocks left behind by a fallback ----
+       A block with no partner-union-of-its-own-with-kids never gets pulled
+       toward anything above by desiredCenter (that only pulls PARENT blocks
+       toward kids, never the reverse) — this includes lone children AND
+       childless couples (e.g. a married-in spouse with no kids of their
+       own), so if a fallback seeded either far from their actual parents,
+       they'd stay stranded there through every iteration. Snapping them to
+       their now-settled parents' midpoint here — once, after the iterative
+       relax already converged — can't feed back into that relaxation and
+       cause the runaway drift a symmetric pull would. */
+    gens.forEach(g=>{
+      const blocks=buildBlocks(g);
+      blocks.forEach(b=>{
+        const hasOwnPull = b.ids.some(id=>FAM.unions.some(u=>u.partners.includes(id)&&u.children.some(k=>POS[k])));
+        if(hasOwnPull) return;
+        const parentXs=[];
+        b.ids.forEach(id=>{
+          const pu=FAM.parentsUnion(id);
+          if(pu) pu.partners.forEach(pid=>{ if(POS[pid]) parentXs.push(POS[pid].x); });
+        });
+        if(parentXs.length) setBlock(b, parentXs.reduce((a,x)=>a+x,0)/parentXs.length);
+      });
+      deoverlap(blocks);
+    });
   }
 
   /* ---- lay out union clusters not reachable from the main root ---- */
@@ -280,6 +400,8 @@ const Layout = (()=>{
 
   function compute(){
     POS = {};
+    SIDE = {};
+    FAM.unions.forEach(u=>{ delete u._order; });
     const root = FAM.unions.find(u=>u.root) || FAM.unions[0];
     if(root){
       layoutDescendants(root, LC.CENTER, 0);
@@ -341,25 +463,91 @@ const View = (()=>{
     world = document.getElementById('world');
   }
 
+  /* does a third member's symbol sit on the straight line between two
+     same-row partners? happens when one person has 3+ marriages — at most
+     two spouses can be adjacent in a 1D row, so any further union must
+     route around whoever ends up in between instead of hiding behind them */
+  function rangeBlocked(lo, hi, y, skipIds){
+    if(lo>=hi) return false;
+    return FAM.people.some(p=>{
+      if(skipIds.includes(p.id)) return false;
+      const pt=POS[p.id]; if(!pt) return false;
+      return pt.y===y && pt.x>lo && pt.x<hi;
+    });
+  }
+  function lineBlocked(a, b, skipIds){
+    return rangeBlocked(Math.min(a.x,b.x)+LC.S/2, Math.max(a.x,b.x)-LC.S/2, a.y, skipIds);
+  }
+
+  /* routed (obstruction-avoiding) lines — both partner lines blocked by a
+     third member, and children buses stretched wide by a child seeded far
+     from their own parents — that span overlapping x-ranges at the same
+     height would otherwise stack on top of one another and look like a
+     single shared line, or a partner line could coincide with an unrelated
+     bus passing through the same gap. Both kinds share one stacking pool,
+     keyed by height, so anything overlapping steps up to its own level. */
+  function routedHeights(){
+    const spans=[];
+    FAM.unions.forEach(u=>{
+      const parts=u.partners.map(id=>POS[id]).filter(Boolean);
+      if(parts.length===2){
+        const [a,b]=parts;
+        if(lineBlocked(a,b,u.partners)) spans.push({ key:u.id+':p', y:a.y, lo:Math.min(a.x,b.x), hi:Math.max(a.x,b.x) });
+      }
+      const kids=u.children.map(id=>POS[id]).filter(Boolean);
+      if(kids.length && parts.length){
+        const mx=parts.length===2?(parts[0].x+parts[1].x)/2:parts[0].x;
+        const cy=kids[0].y;
+        const xs=kids.map(k=>k.x).concat(mx);
+        const lo=Math.min(...xs), hi=Math.max(...xs);
+        const skip=[...u.partners, ...u.children];
+        if(rangeBlocked(lo+LC.S/2, hi-LC.S/2, cy, skip)) spans.push({ key:u.id+':b', y:cy, lo, hi });
+      }
+    });
+    spans.sort((x,y)=>(x.hi-x.lo)-(y.hi-y.lo));
+    const placed=[], heights={};
+    spans.forEach(s=>{
+      let level=0;
+      while(placed.some(p=>p.level===level && p.y===s.y && s.lo<p.hi && s.hi>p.lo)) level++;
+      heights[s.key]=LC.S+38+level*26;   // base clearance, +1 step per overlapping line
+      placed.push({y:s.y,lo:s.lo,hi:s.hi,level});
+    });
+    return heights;
+  }
+
   function structural(){
     let out='';
+    const routed=routedHeights();
     FAM.unions.forEach(u=>{
       const parts=u.partners.map(id=>POS[id]).filter(Boolean);
       const rt=REL_BY_KEY[u.type]||{};
       if(parts.length===2){
         const [a,b]=parts, y=a.y, mx=(a.x+b.x)/2;
         const dash=lineDash(u.type);
-        out+=`<path class="struct" ${dash} d="M${a.x} ${y} H${b.x}"/>`;
-        out+=marks(u.type, mx, y);
+        const H=routed[u.id+':p'];
+        if(H!=null){
+          out+=`<path class="struct" ${dash} d="M${a.x} ${y} V${y-H} H${b.x} V${y}"/>`;
+          out+=marks(u.type, mx, y-H);
+        } else {
+          out+=`<path class="struct" ${dash} d="M${a.x} ${y} H${b.x}"/>`;
+          out+=marks(u.type, mx, y);
+        }
       }
       // children bus
       const kids=u.children.map(id=>POS[id]).filter(Boolean);
       if(kids.length && parts.length){
         const py=parts[0].y, mx=parts.length===2?(parts[0].x+parts[1].x)/2:parts[0].x;
-        const cy=kids[0].y, bus=cy-LC.S/2-30;
-        out+=`<path class="struct" d="M${mx} ${py} V${bus}"/>`;
+        const cy=kids[0].y;
         const xs=kids.map(k=>k.x).concat(mx);
-        out+=`<path class="struct" d="M${Math.min(...xs)} ${bus} H${Math.max(...xs)}"/>`;
+        const xsLo=Math.min(...xs), xsHi=Math.max(...xs);
+        // a child seeded (or pushed by de-overlap) far from this union's own
+        // partners — e.g. no room for them right beside their siblings —
+        // makes for a wide bus that can cut straight across an unrelated
+        // family in between; lift it clear of their halos when that happens
+        const busH=routed[u.id+':b'];
+        const bus = busH!=null ? cy-busH : cy-LC.S/2-30;
+        out+=`<path class="struct" d="M${mx} ${py} V${bus}"/>`;
+        out+=`<path class="struct" d="M${xsLo} ${bus} H${xsHi}"/>`;
         u.children.forEach(cid=>{ const k=POS[cid]; if(!k) return; const ch=FAM.byId(cid);
           const dash = ch.conn==='adopted'?'stroke-dasharray="7 5"':ch.conn==='foster'?'stroke-dasharray="2 5"':'';
           out+=`<path class="struct" ${dash} d="M${k.x} ${bus} V${k.y-LC.S/2}"/>`; });

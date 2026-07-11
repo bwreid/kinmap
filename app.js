@@ -37,9 +37,11 @@ const App = (()=>{
   /* ---------- add-member form ---------- */
   let form = {};
   function addForm(){
-    form = { name:'', sex:'m', age:'', deceased:false, conn:'bio', index:false, relation:'child', target:'u3' };
+    const relation = state.addRelation;
+    form = { name:'', sex:'m', age:'', deceased:false, conn:'bio', index:false, relation, target:'u3' };
     const seg=(opts,val,grp)=>opts.map(o=>`<button class="seg-b${o.v===val?' on':''}" data-grp="${grp}" data-v="${o.v}">${o.l}</button>`).join('');
     const showFam = FAM.people.length > 0;
+    const relLabel={child:'Child of',sibling:'Sibling of',partner:'Partner of',parent:'Parent of'}[relation]||'';
     return `
     <div class="drawer-h"><h3>Add family member</h3><button class="x" data-act="close">✕</button></div>
     <div class="drawer-body">
@@ -50,11 +52,11 @@ const App = (()=>{
       <div data-fam-section${showFam ? '' : ' style="display:none"'}>
         <div class="rule"></div>
         <div class="fld"><label>Place in family</label>
-          <div class="seg" data-seg="relation">${seg([{v:'child',l:'Child'},{v:'sibling',l:'Sibling'},{v:'partner',l:'Partner'},{v:'parent',l:'Parent'},{v:'none',l:'Unconnected'}],'child','relation')}</div></div>
-        <div class="fld" data-target-fld><label data-rel-label>Child of</label>
-          <select class="inp" data-f="target">${targetOptions('child')}</select>
+          <div class="seg" data-seg="relation">${seg([{v:'child',l:'Child'},{v:'sibling',l:'Sibling'},{v:'partner',l:'Partner'},{v:'parent',l:'Parent'},{v:'none',l:'Unconnected'}],relation,'relation')}</div></div>
+        <div class="fld" data-target-fld style="${relation==='none'?'display:none':''}"><label data-rel-label>${relLabel}</label>
+          <select class="inp" data-f="target">${targetOptions(relation)}</select>
           <p class="hint">Tree re-balances automatically by generation.</p></div>
-        <div class="fld" data-conn-fld><label>Biological connection</label>
+        <div class="fld" data-conn-fld style="${(relation==='child'||relation==='sibling')?'':'display:none'}"><label>Biological connection</label>
           <div class="seg" data-seg="conn">${seg([{v:'bio',l:'Biological'},{v:'adopted',l:'Adopted'},{v:'foster',l:'Foster'}],'bio','conn')}</div></div>
       </div>
       <label class="check"><input type="checkbox" data-f="index"> Mark as index patient</label>
@@ -454,7 +456,7 @@ const App = (()=>{
         const dinfoFld=d.querySelector('[data-dinfo-fld]');
         if(dinfoFld) dinfoFld.style.display=form.deceased?'':'none';
       }
-      if(grp==='relation'){ form.relation=v;
+      if(grp==='relation'){ form.relation=v; state.addRelation=v;
         d.querySelector('[data-rel-label]').textContent={child:'Child of',sibling:'Sibling of',partner:'Partner of',parent:'Parent of'}[v]||'';
         d.querySelector('[data-f=target]').innerHTML=targetOptions(v);
         d.querySelector('[data-conn-fld]').style.display=(v==='child'||v==='sibling')?'':'none';
