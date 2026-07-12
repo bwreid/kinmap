@@ -565,10 +565,13 @@ const App = (()=>{
     const id=node.dataset.id, p=FAM.byId(id); if(!p) return null;
     const others=Layout.peopleInGen(p.gen).filter(oid=>oid!==id)
       .map(oid=>({ id:oid, c:Layout.pos(oid).x, half:Layout.nodeHalf }));
-    if(!others.length) return null;
-    // where they'd slot back in among `others` at their own starting x — the
-    // indicator only makes sense once the drop position has moved past this,
-    // not from the very start of an in-place reposition
+    // deliberately no early bail-out when `others` is empty (the sole person
+    // in their generation, e.g. an only child) — there's nothing to reorder
+    // against, but they can still be dragged continuously via rowOffset;
+    // returning null here used to fall through to canvas-panning instead
+    // homeIdx: where they'd slot back in among `others` at their own
+    // starting x — the indicator only makes sense once the drop position
+    // has moved past this, not from the very start of an in-place reposition
     const myX=Layout.pos(id).x;
     let homeIdx=others.length;
     for(let i=0;i<others.length;i++){ if(myX<others[i].c){ homeIdx=i; break; } }
