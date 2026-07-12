@@ -108,6 +108,15 @@ button{font-family:inherit;cursor:pointer}
 .node.sel .nlbl{fill:var(--accent-d)}
 .node.pick .halo{stroke:var(--accent);stroke-width:2;stroke-dasharray:5 4;fill:rgba(185,116,63,.06)}
 body.relating .node:hover .halo{stroke:var(--accent-soft);stroke-width:2;fill:rgba(185,116,63,.05)}
+#reset-pos-btn{display:none}
+body.editing #reset-pos-btn{display:inline-flex}
+body.editing .node{cursor:grab}
+body.editing .node:active{cursor:grabbing}
+#drag-indicator{stroke:var(--accent);stroke-width:2;stroke-dasharray:5 4;pointer-events:none}
+.bus-handle circle{fill:var(--panel);stroke:var(--stroke);stroke-width:2}
+.bus-handle.sel circle{stroke:var(--accent);fill:var(--accent-tint)}
+body.editing .bus-handle{cursor:grab}
+body.editing .bus-handle:active{cursor:grabbing}
 
 /* floating stage controls */
 .zoomctl{position:absolute;left:16px;bottom:16px;display:flex;align-items:center;gap:2px;background:var(--panel);

@@ -2,9 +2,10 @@
    Kinmap — layout engine + canvas / list rendering
    ============================================================ */
 
-const LC = { S:54, COUPLE:118, NODEW:112, SIBGAP:46, ROWH:190, TOPY:110, CENTER:640, SIDEGAP:80 };
+const LC = { S:54, COUPLE:118, NODEW:112, SIBGAP:46, ROWH:190, TOPY:110, CENTER:640, SIDEGAP:80, SNAP:6 };
 let POS = {};   // id -> {x,y}
 let SIDE = {};  // id -> -1 (paternal-ish) | +1 (maternal-ish) | undefined (unassigned), relative to the nearest ancestor fork
+let BUSX = {};  // union id -> the x its children-bus actually drops from (raw midpoint + manual busOffset, already snap-corrected)
 
 /* ---------------- auto-balancing generational layout ----------------
    Strategy:
@@ -297,6 +298,20 @@ const Layout = (()=>{
       const sides=b.ids.map(id=>SIDE[id]).filter(s=>s!=null);
       return sides.length ? sides.reduce((a,s)=>a+s,0)/sides.length : 0;
     }
+    // re-sort just the ranked items among themselves and write them back into
+    // the same slots the natural/heuristic order gave them — deliberately NOT
+    // one blended comparator mixing rank with the heuristic, which isn't a
+    // valid total order (a manually-ranked item can sort below-by-rank but
+    // above-by-heuristic relative to different unranked neighbours, producing
+    // a cycle). Used by the manual-position final pass below.
+    function reorderByRank(items, rankOf){
+      const slots=[]; items.forEach((it,i)=>{ if(rankOf(it)!=null) slots.push(i); });
+      if(slots.length>1){
+        const byRank=slots.map(i=>items[i]).sort((a,b)=>rankOf(a)-rankOf(b));
+        slots.forEach((i,k)=>{ items[i]=byRank[k]; });
+      }
+      return items;
+    }
     function deoverlap(blocks){
       blocks.forEach(b=>{ b.c=blockCenter(b); b.side=blockSide(b); });
       // side is the primary sort key so opposite-side family branches never
@@ -341,6 +356,61 @@ const Layout = (()=>{
         if(parentXs.length) setBlock(b, parentXs.reduce((a,x)=>a+x,0)/parentXs.length);
       });
       deoverlap(blocks);
+    });
+    /* ---- final pass: manual per-person row position (App's edit mode) ----
+       Every other pass above positions people in rigid, marriage-adjacent
+       BLOCKS — necessary for the auto-balancing heuristics, but it means no
+       single person can be repositioned independently of their spouse(s).
+       This last pass lets the user override that entirely: ANY person in a
+       generation can be manually ranked (App drags always move one person),
+       and once ranked, they're re-sequenced among ALL other people in that
+       same row (not just their own block) via the same reorderByRank
+       mechanism used above, then every person in the row is re-spaced along
+       a single line — tight (couple-style) between two people who are still
+       actually married to each other, looser otherwise. A union whose
+       partners (or children-bus) end up non-adjacent after this still
+       renders correctly — routedHeights()/lineBlocked() already bow a line
+       up and over whoever ends up in between, so a manually tangled row
+       still connects, just messily, exactly as intended: manual placement
+       is meant to escape the heuristics, not extend them. Runs once, after
+       everything else has converged, so it can't cause runaway drift.
+
+       On top of the discrete order, rowOffset is a raw per-person pixel nudge
+       (App's arrow-key handler) — purely additive and non-rippling, so fine-
+       tuning one person (e.g. straightening a drop-line that has no reason to
+       bow) never shifts anyone else. Once a nudge lands within LC.SNAP of
+       being dead-centered under that person's own parents (their parents'
+       union midpoint — the same mx structural() draws the drop-line's
+       vertical segment from), snap to it exactly and lock rowOffset to the
+       precise value that achieves it, so the drop-line's horizontal jog
+       disappears entirely instead of just getting small, and the snap stays
+       stable across future recomputes (gens is processed in ascending order,
+       so a parent generation's own positions — including their own manual
+       nudges — are always already finalized by the time a child generation
+       reads them here). */
+    gens.forEach(g=>{
+      const natural=FAM.people.filter(p=>p.gen===g && POS[p.id]).map(p=>p.id).sort((a,b)=>POS[a].x-POS[b].x);
+      if(!natural.some(id=>{ const pp=FAM.byId(id); return pp.rowOrder!=null || pp.rowOffset!=null; })) return;
+      const seq=reorderByRank(natural.slice(), id=>FAM.byId(id).rowOrder);
+      const married=(a,b)=>FAM.unions.some(u=>u.partners.length===2&&u.partners.includes(a)&&u.partners.includes(b));
+      const offs=[0];
+      for(let i=1;i<seq.length;i++) offs.push(offs[i-1] + (married(seq[i-1],seq[i]) ? LC.COUPLE : LC.NODEW+LC.SIBGAP));
+      const naturalXs=natural.map(id=>POS[id].x);
+      const shift = (Math.min(...naturalXs)+Math.max(...naturalXs))/2 - (offs[0]+offs[offs.length-1])/2;
+      seq.forEach((id,i)=>{
+        const p=FAM.byId(id);
+        let x = offs[i]+shift+(p.rowOffset||0);
+        if(p.rowOffset!=null){
+          const pu=FAM.parentsUnion(id);
+          const ppos=pu?pu.partners.map(pid=>POS[pid]).filter(Boolean):[];
+          if(ppos.length){
+            const rawMid = ppos.length===2 ? (ppos[0].x+ppos[1].x)/2 : ppos[0].x;
+            const targetX = rawMid + (pu.busOffset||0);
+            if(Math.abs(x-targetX)<=LC.SNAP){ p.rowOffset += (targetX-x); x=targetX; }
+          }
+        }
+        POS[id].x = x;
+      });
     });
   }
 
@@ -401,6 +471,7 @@ const Layout = (()=>{
   function compute(){
     POS = {};
     SIDE = {};
+    BUSX = {};
     FAM.unions.forEach(u=>{ delete u._order; });
     const root = FAM.unions.find(u=>u.root) || FAM.unions[0];
     if(root){
@@ -440,14 +511,59 @@ const Layout = (()=>{
     }});
 
     relax();
+    computeBusAnchors();
     return bounds();
+  }
+
+  /* ---- a union's own "line origin" — the x its children-bus drops from ----
+     Normally just the raw midpoint of the two parents (or the one placed
+     partner). App's edit mode lets this be manually offset (busOffset),
+     independent of either parent's own position — e.g. to straighten a
+     singleton child's line from the parents' side instead of the child's.
+     Runs once, after relax() has fully finalized every person's position
+     (including their own rowOffset/snap), so kids' positions here are final.
+     Mirrors the person-side rowOffset snap: once busOffset puts mx within
+     LC.SNAP of the kids' average x, lock busOffset to the exact value. For a
+     single-child union this is the same comparison the child's own snap
+     makes (converges in one pass); for multiple children the two sides
+     compare against different targets (a fixed union midpoint vs. an
+     average of several kids) and may take one extra render to fully settle
+     — acceptable for a slow, iterative manual-editing workflow. */
+  function computeBusAnchors(){
+    FAM.unions.forEach(u=>{
+      const parts=u.partners.map(id=>POS[id]).filter(Boolean);
+      const kids=u.children.map(id=>POS[id]).filter(Boolean);
+      if(!parts.length || !kids.length) return;
+      const base=parts.length===2?(parts[0].x+parts[1].x)/2:parts[0].x;
+      let mx=base+(u.busOffset||0);
+      if(u.busOffset!=null){
+        const target=kids.reduce((s,k)=>s+k.x,0)/kids.length;
+        if(Math.abs(mx-target)<=LC.SNAP){ u.busOffset+=(target-mx); mx=target; }
+      }
+      BUSX[u.id]=mx;
+    });
   }
 
   function bounds(){
     const xs=Object.values(POS).map(p=>p.x), ys=Object.values(POS).map(p=>p.y);
     return { minX:Math.min(...xs)-90, maxX:Math.max(...xs)+90, minY:Math.min(...ys)-90, maxY:Math.max(...ys)+118 };
   }
-  return { compute, genY };
+  // a union's children-bus origin x, computed+snapped in computeBusAnchors();
+  // falls back to the raw (offset-free) partner midpoint if that union was
+  // never populated there, so a gating mismatch between here and a caller
+  // never produces NaN in a rendered path
+  function busX(uid){
+    if(BUSX[uid]!=null) return BUSX[uid];
+    const u=FAM.unions.find(x=>x.id===uid); if(!u) return undefined;
+    const parts=u.partners.map(id=>POS[id]).filter(Boolean); if(!parts.length) return undefined;
+    return parts.length===2?(parts[0].x+parts[1].x)/2:parts[0].x;
+  }
+  return {
+    compute, genY, pos: id=>POS[id], nodeHalf: LC.NODEW/2, busX,
+    // every person in generation g, left-to-right by current x — used by
+    // App's edit-mode drag to find who else is in the same row
+    peopleInGen: g => FAM.people.filter(p=>p.gen===g && POS[p.id]).map(p=>p.id).sort((a,b)=>POS[a].x-POS[b].x),
+  };
 })();
 
 /* ---------------- rendering ---------------- */
@@ -496,7 +612,7 @@ const View = (()=>{
       }
       const kids=u.children.map(id=>POS[id]).filter(Boolean);
       if(kids.length && parts.length){
-        const mx=parts.length===2?(parts[0].x+parts[1].x)/2:parts[0].x;
+        const mx=Layout.busX(u.id);
         const cy=kids[0].y;
         const xs=kids.map(k=>k.x).concat(mx);
         const lo=Math.min(...xs), hi=Math.max(...xs);
@@ -521,13 +637,13 @@ const View = (()=>{
     FAM.unions.forEach(u=>{
       const parts=u.partners.map(id=>POS[id]).filter(Boolean);
       const rt=REL_BY_KEY[u.type]||{};
+      const Hp=routed[u.id+':p'];
       if(parts.length===2){
         const [a,b]=parts, y=a.y, mx=(a.x+b.x)/2;
         const dash=lineDash(u.type);
-        const H=routed[u.id+':p'];
-        if(H!=null){
-          out+=`<path class="struct" ${dash} d="M${a.x} ${y} V${y-H} H${b.x} V${y}"/>`;
-          out+=marks(u.type, mx, y-H);
+        if(Hp!=null){
+          out+=`<path class="struct" ${dash} d="M${a.x} ${y} V${y-Hp} H${b.x} V${y}"/>`;
+          out+=marks(u.type, mx, y-Hp);
         } else {
           out+=`<path class="struct" ${dash} d="M${a.x} ${y} H${b.x}"/>`;
           out+=marks(u.type, mx, y);
@@ -536,7 +652,12 @@ const View = (()=>{
       // children bus
       const kids=u.children.map(id=>POS[id]).filter(Boolean);
       if(kids.length && parts.length){
-        const py=parts[0].y, mx=parts.length===2?(parts[0].x+parts[1].x)/2:parts[0].x;
+        // if this union's own partner-line got bowed up over an obstruction
+        // (Hp), the point where the kids' line departs from the couple must
+        // follow it up too — otherwise it starts from the couple's original,
+        // now-unoccupied row height, well below the line that's actually
+        // drawn, and visually looks disconnected from whose child this is
+        const py=(Hp!=null?parts[0].y-Hp:parts[0].y), mx=Layout.busX(u.id);
         const cy=kids[0].y;
         const xs=kids.map(k=>k.x).concat(mx);
         const xsLo=Math.min(...xs), xsHi=Math.max(...xs);
@@ -551,6 +672,12 @@ const View = (()=>{
         u.children.forEach(cid=>{ const k=POS[cid]; if(!k) return; const ch=FAM.byId(cid);
           const dash = ch.conn==='adopted'?'stroke-dasharray="7 5"':ch.conn==='foster'?'stroke-dasharray="2 5"':'';
           out+=`<path class="struct" ${dash} d="M${k.x} ${bus} V${k.y-LC.S/2}"/>`; });
+        // draggable/arrow-key-nudgeable handle at this union's own line-origin
+        // point, independent of either parent — only shown in edit mode
+        if(App.state.mode==='edit'){
+          const sel=App.state.selectedUnion===u.id?' sel':'';
+          out+=`<g class="bus-handle${sel}" data-uid="${u.id}" data-x="${mx}" data-y="${bus}" transform="translate(${mx},${bus})"><circle r="7"/></g>`;
+        }
       }
     });
     return out;
@@ -661,6 +788,8 @@ const View = (()=>{
       n.classList.toggle('pick', pair.includes(id));
     });
     document.querySelectorAll('.mrow').forEach(r=>r.classList.toggle('sel', r.dataset.id===sel));
+    const selU = App.state.selectedUnion;
+    document.querySelectorAll('.bus-handle').forEach(h=>h.classList.toggle('sel', h.dataset.uid===selU));
   }
 
   /* pan / zoom */
@@ -684,6 +813,12 @@ const View = (()=>{
   function panBy(dx,dy){ view.x+=dx; view.y+=dy; apply(); }
   function zoomPct(){ return Math.round(view.k*100); }
   function resetView(){ view.x=0; view.y=0; view.k=1; apply(); }
+  // screen (client) coords -> world coords, inverting apply()'s transform —
+  // used by App's edit-mode drag to place a node under the live pointer
+  function toWorld(clientX, clientY){
+    const r=svg.getBoundingClientRect();
+    return { x:(clientX-r.left-view.x)/view.k, y:(clientY-r.top-view.y)/view.k };
+  }
 
-  return { init, canvas, list, selection, fit, zoomBy, panBy, panView:view, zoomPct, resetView };
+  return { init, canvas, list, selection, fit, zoomBy, panBy, panView:view, zoomPct, resetView, toWorld };
 })();

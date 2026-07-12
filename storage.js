@@ -17,7 +17,8 @@ const Storage = (() => {
         people: FAM.people.map(p => ({ ...p })),
         unions: FAM.unions.map(u => ({
           id: u.id, partners: [...u.partners], type: u.type,
-          children: [...u.children], ...(u.root ? { root: true } : {})
+          children: [...u.children], ...(u.root ? { root: true } : {}),
+          busOffset: u.busOffset
         })),
         rels: FAM.rels.map(r => ({ ...r }))
       }

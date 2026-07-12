@@ -2,7 +2,9 @@
    Kinmap — app state + interactions
    ============================================================ */
 const App = (()=>{
-  const state = { selected:null, drawer:null, mode:'normal', relPair:[], relType:null, addRelation:'child', showEmo:true };
+  const state = { selected:null, selectedUnion:null, drawer:null, mode:'normal', relPair:[], relType:null, addRelation:'child', showEmo:true };
+  const RANK_STEP = 1000;
+  const NUDGE_STEP = 8, NUDGE_BIG = 32;
 
   /* ---------- boot ---------- */
   function init(){
@@ -19,10 +21,16 @@ const App = (()=>{
   /* ---------- selection ---------- */
   function select(id){
     if(state.mode==='relate'){ togglePair(id); return; }
-    state.selected=id; View.selection();
+    state.selected=id; state.selectedUnion=null; View.selection();
     if(id) openDrawer('inspect');
+    if(id && state.mode==='edit') flash('Use ← → to nudge this member (Shift for a bigger step)', 3200);
   }
-  function deselect(){ if(state.mode==='relate') return; state.selected=null; View.selection(); closeDrawer(); }
+  function deselect(){ if(state.mode==='relate') return; state.selected=null; state.selectedUnion=null; View.selection(); closeDrawer(); }
+  function selectUnion(uid){
+    state.selected=null; closeDrawer();
+    state.selectedUnion=uid; View.selection();
+    flash('Use ← → to nudge where this line begins (Shift for a bigger step)', 3200);
+  }
 
   /* ---------- drawer ---------- */
   function openDrawer(mode){
@@ -148,6 +156,7 @@ const App = (()=>{
     </div>
     <div class="drawer-foot">
       <button class="btn ghost danger" data-act="delete">Delete</button>
+      ${(p.rowOrder!=null||p.rowOffset!=null)?`<button class="btn ghost" data-act="reset-pos">↺ Reset position</button>`:''}
       <button class="btn ghost" data-act="edit">✎ Edit</button>
       <button class="btn primary" data-act="close">Done</button>
     </div>`;
@@ -234,6 +243,7 @@ const App = (()=>{
 
   /* ---------- relationship builder ---------- */
   function enterRelate(seed){
+    if(state.mode==='edit') exitEdit();
     closeDrawer(); // close any open drawer before entering relate mode
     state.mode='relate'; state.relPair = seed?[seed]:[]; state.relType=null;
     document.getElementById('relbar').classList.add('open');
@@ -245,6 +255,26 @@ const App = (()=>{
     document.getElementById('relbar').classList.remove('open');
     document.body.classList.remove('relating');
     View.selection();
+  }
+
+  /* ---------- manual edit mode (drag-to-reorder within a generation) ---------- */
+  function enterEdit(){
+    if(state.mode==='relate') exitRelate();
+    closeDrawer();
+    state.mode='edit';
+    document.body.classList.add('editing');
+    document.getElementById('toggle-edit-btn')?.classList.add('on');
+    rerender();   // bus-origin handles only render while in edit mode
+  }
+  function exitEdit(){
+    state.mode='normal';
+    state.selectedUnion=null;
+    document.body.classList.remove('editing');
+    document.getElementById('toggle-edit-btn')?.classList.remove('on');
+    rerender();
+  }
+  function resetRowOrder(ids){
+    ids.forEach(id=>{ const p=FAM.byId(id); if(p){ delete p.rowOrder; delete p.rowOffset; } });
   }
   function togglePair(id){
     const i=state.relPair.indexOf(id);
@@ -301,10 +331,12 @@ const App = (()=>{
   }
   function doNewGenogram(){
     FAM.people=[]; FAM.unions=[]; FAM.rels=[]; FAM._n=100;
-    state.selected=null; state.mode='normal'; state.relPair=[]; state.relType=null;
+    state.selected=null; state.selectedUnion=null; state.mode='normal'; state.relPair=[]; state.relType=null;
     closeDrawer();
     document.getElementById('relbar').classList.remove('open');
     document.body.classList.remove('relating');
+    document.body.classList.remove('editing');
+    document.getElementById('toggle-edit-btn')?.classList.remove('on');
     document.getElementById('legend').classList.remove('open');
     document.getElementById('search').value='';
     rerender();
@@ -325,6 +357,12 @@ const App = (()=>{
       if(a==='zout'){ View.zoomBy(1/1.2); updZoom(); }
       if(a==='legend'){ document.getElementById('legend').classList.toggle('open'); }
       if(a==='toggle-emo'){ state.showEmo=!state.showEmo; applyEmoVisibility(); }
+      if(a==='toggle-edit'){ state.mode==='edit'?exitEdit():enterEdit(); }
+      if(a==='reset-all-pos'){
+        resetRowOrder(FAM.people.map(p=>p.id));
+        FAM.unions.forEach(u=>delete u.busOffset);
+        rerender(); flash('All manual positions reset'); Storage.autosave();
+      }
       if(a==='new'){ newGenogram(); }
       if(a==='save'){
         if(FAM.people.length===0){ flash('Nothing to save'); return; }
@@ -372,10 +410,12 @@ const App = (()=>{
       if(b.dataset.act==='load-entry'){
         const doc=Storage.loadNamed(b.dataset.key); if(!doc) return;
         Storage.hydrate(doc);
-        state.selected=null; state.mode='normal'; state.relPair=[]; state.relType=null;
+        state.selected=null; state.selectedUnion=null; state.mode='normal'; state.relPair=[]; state.relType=null;
         closeDrawer();
         document.getElementById('relbar').classList.remove('open');
         document.body.classList.remove('relating');
+        document.body.classList.remove('editing');
+        document.getElementById('toggle-edit-btn')?.classList.remove('on');
         document.getElementById('legend').classList.remove('open');
         document.getElementById('search').value='';
         rerender(); View.fit(); updZoom();
@@ -411,6 +451,13 @@ const App = (()=>{
       if(a==='save-edit') commitEdit();
       if(a==='delete') deletePerson(state.selected);
       if(a==='relate-from') enterRelate(state.selected);
+      if(a==='reset-pos'){
+        // manual position is purely personal now (rowOrder lives on just
+        // this one person), so resetting only clears their own override —
+        // everyone else in the row keeps whatever manual order they have
+        resetRowOrder([state.selected]);
+        rerender(); openDrawer('inspect'); flash('Position reset'); Storage.autosave();
+      }
       if(a==='rmrel'){ }
     });
     document.getElementById('drawer').addEventListener('click',e=>{
@@ -443,6 +490,26 @@ const App = (()=>{
     });
     // canvas pan/zoom + node click
     canvasEvents();
+    // edit-mode arrow-key nudge: fine horizontal positioning, independent of
+    // the drag gesture — either a selected person's rowOffset (engine.js) or
+    // a selected union's bus-origin busOffset, whichever is currently selected
+    document.addEventListener('keydown', e=>{
+      if(state.mode!=='edit' || (!state.selected && !state.selectedUnion)) return;
+      if(e.target.closest('input,textarea,select,[contenteditable]')) return;
+      if(e.key!=='ArrowLeft' && e.key!=='ArrowRight') return;
+      e.preventDefault();
+      const step=e.shiftKey?NUDGE_BIG:NUDGE_STEP;
+      const delta=e.key==='ArrowRight'?step:-step;
+      if(state.selectedUnion){
+        const u=FAM.unions.find(x=>x.id===state.selectedUnion); if(!u) return;
+        u.busOffset=(u.busOffset||0)+delta;
+        rerender(); Storage.autosave();
+        return;
+      }
+      const p=FAM.byId(state.selected); if(!p) return;
+      p.rowOffset=(p.rowOffset||0)+delta;
+      rerender(); Storage.autosave();
+    });
   }
   function bindDrawer(){
     const d=document.getElementById('drawer');
@@ -476,20 +543,132 @@ const App = (()=>{
     document.getElementById('toggle-emo-btn')?.classList.toggle('on', state.showEmo);
   }
 
-  function deselectSilent(){ state.selected=null; View.selection(); }
+  function deselectSilent(){ state.selected=null; state.selectedUnion=null; View.selection(); }
   function focusNode(){ /* could center; keep view stable */ }
   function updZoom(){ const z=document.getElementById('zpct'); if(z) z.textContent=View.zoomPct()+'%'; }
 
+  /* ---- edit-mode drag-to-reorder helpers ----
+     Every drag moves exactly ONE person — never their spouse(s), never a
+     "block" — and re-sequences them anywhere among everyone else in the
+     same generation row. There's no adjacency requirement: a union whose
+     partners land non-adjacent after this still renders fine (the existing
+     obstruction-routing in View bows the line up and over whoever ends up
+     in between), which is the point — manual placement is meant to escape
+     the auto-balancing heuristics, not extend them. */
+  function startDrag(node, e){
+    const id=node.dataset.id, p=FAM.byId(id); if(!p) return null;
+    const others=Layout.peopleInGen(p.gen).filter(oid=>oid!==id)
+      .map(oid=>({ id:oid, c:Layout.pos(oid).x, half:Layout.nodeHalf }));
+    if(!others.length) return null;
+    // where they'd slot back in among `others` at their own starting x — the
+    // indicator only makes sense once the drop position has moved past this,
+    // not from the very start of an in-place reposition
+    const myX=Layout.pos(id).x;
+    let homeIdx=others.length;
+    for(let i=0;i<others.length;i++){ if(myX<others[i].c){ homeIdx=i; break; } }
+    return { kind:'person', id, gen:p.gen, others, homeIdx, startX:e.clientX, startY:e.clientY, moved:false, dropIdx:null };
+  }
+  function updateDrag(drag, e){
+    const w=View.toWorld(e.clientX, e.clientY);
+    drag.lastX=w.x;
+    const el=document.querySelector(`.node[data-id="${drag.id}"]`);
+    if(el) el.setAttribute('transform',`translate(${w.x},${Layout.pos(drag.id).y})`);
+    let idx=drag.others.length;
+    for(let i=0;i<drag.others.length;i++){ if(w.x<drag.others[i].c){ idx=i; break; } }
+    drag.dropIdx=idx;
+    if(idx===drag.homeIdx) endDragVisual();
+    else showDragIndicator(drag.others, idx, Layout.pos(drag.id).y);
+  }
+  function showDragIndicator(others, idx, y){
+    let line=document.getElementById('drag-indicator');
+    if(!line){
+      line=document.createElementNS('http://www.w3.org/2000/svg','line');
+      line.id='drag-indicator';
+      document.getElementById('world').appendChild(line);
+    }
+    const before=others[idx-1], after=others[idx];
+    const x = before&&after ? (before.c+before.half+after.c-after.half)/2
+            : after ? after.c-after.half-40
+            : before ? before.c+before.half+40 : 0;
+    line.setAttribute('x1',x); line.setAttribute('x2',x);
+    line.setAttribute('y1',y-70); line.setAttribute('y2',y+70);
+  }
+  function endDragVisual(){ document.getElementById('drag-indicator')?.remove(); }
+  function commitDrag(drag){
+    const order=drag.others.slice();
+    order.splice(drag.dropIdx, 0, { id:drag.id });
+    order.forEach((s,i)=>{ const p=FAM.byId(s.id); if(p) p.rowOrder=(i+1)*RANK_STEP; });
+    // continuous fine-position: find where this slot would land with zero
+    // offset, then store the leftover distance to the actual drop point as
+    // rowOffset — one drag gesture sets both order AND fine position;
+    // arrow keys still work afterward for further adjustment
+    const p=FAM.byId(drag.id);
+    delete p.rowOffset;
+    Layout.compute();
+    const naturalX=Layout.pos(drag.id).x;
+    const offset=drag.lastX-naturalX;
+    if(Math.abs(offset)>=1) p.rowOffset=offset; else delete p.rowOffset;
+    rerender(); flash('Position updated'); Storage.autosave();
+  }
+
+  /* ---- a union's own line-origin handle: a simple 1:1 pixel-follow drag,
+     no reordering/siblings concept (unlike a person's drag), just a direct
+     continuous nudge of engine.js's busOffset ---- */
+  function startBusDrag(handle, e){
+    const uid=handle.dataset.uid, u=FAM.unions.find(x=>x.id===uid); if(!u) return null;
+    const baseX=parseFloat(handle.dataset.x) - (u.busOffset||0);   // raw, offset-free mx
+    return { kind:'bus', uid, baseX, startX:e.clientX, startY:e.clientY, moved:false, lastX:parseFloat(handle.dataset.x) };
+  }
+  function updateBusDrag(drag, e){
+    const w=View.toWorld(e.clientX, e.clientY);
+    drag.lastX=w.x;
+    const el=document.querySelector(`.bus-handle[data-uid="${drag.uid}"]`);
+    if(el) el.setAttribute('transform',`translate(${w.x},${el.dataset.y})`);
+  }
+  function commitBusDrag(drag){
+    const u=FAM.unions.find(x=>x.id===drag.uid); if(!u) return;
+    const offset=drag.lastX-drag.baseX;
+    if(Math.abs(offset)>=1) u.busOffset=offset; else delete u.busOffset;
+    rerender(); flash('Position updated'); Storage.autosave();
+  }
+
   function canvasEvents(){
     const svg=document.getElementById('canvas');
-    let down=null, moved=false;
-    svg.addEventListener('pointerdown',e=>{ down={x:e.clientX,y:e.clientY,vx:View.panView.x,vy:View.panView.y}; moved=false; svg.setPointerCapture(e.pointerId); });
-    svg.addEventListener('pointermove',e=>{ if(!down) return; const dx=e.clientX-down.x, dy=e.clientY-down.y;
+    let down=null, moved=false, drag=null;
+    svg.addEventListener('pointerdown',e=>{
+      if(state.mode==='edit'){
+        const handle=e.target.closest('.bus-handle');
+        if(handle){ drag=startBusDrag(handle, e); if(drag) svg.setPointerCapture(e.pointerId); }
+        if(!drag){
+          const node=e.target.closest('.node');
+          if(node){ drag=startDrag(node, e); if(drag) svg.setPointerCapture(e.pointerId); }
+        }
+        if(drag) return;
+      }
+      down={x:e.clientX,y:e.clientY,vx:View.panView.x,vy:View.panView.y}; moved=false; svg.setPointerCapture(e.pointerId);
+    });
+    svg.addEventListener('pointermove',e=>{
+      if(drag){
+        if(!drag.moved && Math.abs(e.clientX-drag.startX)+Math.abs(e.clientY-drag.startY)<=4) return;
+        drag.moved=true;
+        if(drag.kind==='bus') updateBusDrag(drag, e); else updateDrag(drag, e);
+        return;
+      }
+      if(!down) return; const dx=e.clientX-down.x, dy=e.clientY-down.y;
       if(Math.abs(dx)+Math.abs(dy)>4) moved=true;
       View.panView.x=down.vx+dx; View.panView.y=down.vy+dy;
       document.getElementById('world').setAttribute('transform',`translate(${View.panView.x},${View.panView.y}) scale(${View.panView.k})`);
     });
     svg.addEventListener('pointerup',e=>{
+      if(drag){
+        try{ svg.releasePointerCapture(e.pointerId); }catch(_){}
+        if(drag.kind==='bus'){
+          if(drag.moved) commitBusDrag(drag); else selectUnion(drag.uid);
+        } else {
+          if(drag.moved) commitDrag(drag); else select(drag.id);
+        }
+        endDragVisual(); drag=null; return;
+      }
       const wasMoved=moved; down=null;
       try{ svg.releasePointerCapture(e.pointerId); }catch(_){}
       if(!wasMoved){
@@ -505,8 +684,8 @@ const App = (()=>{
 
   /* toast */
   let toastT;
-  function flash(msg){ let t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show');
-    clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('show'),1900); }
+  function flash(msg, ms=1900){ let t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show');
+    clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('show'),ms); }
 
   return { state, init, select, rerender, enterRelate };
 })();
