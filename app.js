@@ -2,7 +2,7 @@
    Kinmap — app state + interactions
    ============================================================ */
 const App = (()=>{
-  const state = { selected:null, selectedUnion:null, drawer:null, mode:'normal', relPair:[], relType:null, addRelation:'child', showEmo:true };
+  const state = { selected:null, selectedUnion:null, drawer:null, mode:'normal', relPair:[], relType:null, addRelation:'child', showEmo:true, highlightLabels:new Set() };
   const RANK_STEP = 1000;
   const NUDGE_STEP = 8, NUDGE_BIG = 32;
 
@@ -84,16 +84,15 @@ const App = (()=>{
     return FAM.people.map(p=>`<option value="${p.id}">${p.name}</option>`).join('');
   }
 
-  /* ---------- edit-member form ---------- */
+  /* ---------- label toggle chips (shared: edit form + inspector) ---------- */
+  function renderLabelChips(assignedIds, action){
+    if(!FAM.labelDefs.length) return `<p class="hint">No labels defined yet — use <button class="linklike" data-act="manage-labels">Manage labels</button> to create one.</p>`;
+    return `<div class="label-existing-list">${FAM.labelDefs.map(l=>`<button class="label-chip${assignedIds.includes(l.id)?' on':''}" data-act="${action}" data-id="${l.id}">${renderLabelIcon(l.icon,14,l.color)}<span>${l.desc}</span></button>`).join('')}</div>`;
+  }
   function renderLabelsFld(){
-    if(!FAM.labelDefs.length) return `<div class="fld labels-fld" data-labels-fld>
-      <label>Labels</label>
-      <p class="hint">No labels defined yet — use <button class="linklike" data-act="manage-labels">Manage labels</button> to create one.</p>
-    </div>`;
-    const chips=FAM.labelDefs.map(l=>`<button class="label-chip${(form.labelIds||[]).includes(l.id)?' on':''}" data-act="toggle-label" data-id="${l.id}">${renderLabelIcon(l.icon,14,l.color)}<span>${l.desc}</span></button>`).join('');
     return `<div class="fld labels-fld" data-labels-fld>
       <label>Labels</label>
-      <div class="label-existing-list">${chips}</div>
+      ${renderLabelChips(form.labelIds||[], 'toggle-label')}
     </div>`;
   }
   function editForm(){
@@ -165,6 +164,9 @@ const App = (()=>{
       <div class="sec-h">Emotional ties <span class="cnt">${rels.length}</span></div>
       <div class="rel-list">${relRows}</div>
       <button class="btn block" data-act="relate-from">＋ Add relationship</button>
+      <div class="rule"></div>
+      <div class="sec-h">Labels</div>
+      ${renderLabelChips(p.labelIds||[], 'toggle-label-live')}
     </div>
     <div class="drawer-foot">
       <button class="btn ghost danger" data-act="delete">Delete</button>
@@ -345,12 +347,15 @@ const App = (()=>{
   function doNewGenogram(){
     FAM.people=[]; FAM.unions=[]; FAM.rels=[]; FAM._n=100;
     state.selected=null; state.selectedUnion=null; state.mode='normal'; state.relPair=[]; state.relType=null;
+    state.highlightLabels.clear();
     closeDrawer();
     document.getElementById('relbar').classList.remove('open');
     document.body.classList.remove('relating');
     document.body.classList.remove('editing');
     document.getElementById('toggle-edit-btn')?.classList.remove('on');
     document.getElementById('legend').classList.remove('open');
+    document.getElementById('hlpop').classList.remove('open');
+    document.getElementById('highlight-btn')?.classList.remove('on');
     document.getElementById('search').value='';
     rerender();
     View.resetView(); updZoom();
@@ -423,6 +428,18 @@ const App = (()=>{
       </div>`;
   }
 
+  /* ---------- highlight-by-label popover ---------- */
+  function renderHighlightPop(){
+    const el=document.getElementById('hlpop-body'); if(!el) return;
+    const labels=FAM.usedLabels();
+    if(!labels.length){ el.innerHTML=`<p class="hint">No labels in use yet.</p>`; return; }
+    const chips=labels.map(l=>`<button class="label-chip${state.highlightLabels.has(l.id)?' on':''}" data-act="toggle-highlight-label" data-id="${l.id}">${renderLabelIcon(l.icon,14,l.color)}<span>${l.desc}</span></button>`).join('');
+    el.innerHTML=`
+      <div class="hlpop-h">Highlight members with</div>
+      <div class="label-existing-list">${chips}</div>
+      ${state.highlightLabels.size?'<button class="linklike hlpop-clear" data-act="clear-highlight">Clear highlight</button>':''}`;
+  }
+
   /* ---------- event wiring ---------- */
   function wire(){
     // toolbar
@@ -453,6 +470,7 @@ const App = (()=>{
       if(a==='fit'){ View.fit(); updZoom(); }
       if(a==='legend'){ document.getElementById('legend').classList.toggle('open'); }
       if(a==='toggle-emo'){ state.showEmo=!state.showEmo; applyEmoVisibility(); }
+      if(a==='toggle-highlight'){ renderHighlightPop(); document.getElementById('hlpop').classList.toggle('open'); }
       if(a==='zin'){ View.zoomBy(1.2); updZoom(); }
       if(a==='zout'){ View.zoomBy(1/1.2); updZoom(); }
       if(a==='toggle-edit'){ state.mode==='edit'?exitEdit():enterEdit(); }
@@ -499,7 +517,10 @@ const App = (()=>{
       const b=e.target.closest('[data-act]'); if(!b) return;
       const a=b.dataset.act;
       if(a==='labels-close') document.getElementById('labels-modal').classList.remove('open');
-      if(a==='remove-labeldef'){ FAM.removeLabelDef(b.dataset.id); renderLabelsModal(); rerender(); Storage.autosave(); }
+      if(a==='remove-labeldef'){
+        FAM.removeLabelDef(b.dataset.id); state.highlightLabels.delete(b.dataset.id);
+        renderLabelsModal(); rerender(); Storage.autosave();
+      }
       if(a==='draft-icon'){ labelDraft.icon=b.dataset.icon; renderLabelsModal(); }
       if(a==='draft-color'){ labelDraft.color=b.dataset.color||null; renderLabelsModal(); }
       if(a==='add-labeldef'){
@@ -515,6 +536,22 @@ const App = (()=>{
     });
     document.getElementById('labels-modal').addEventListener('input',e=>{
       if(e.target.id==='labeldef-desc-input') labelDraft.desc=e.target.value;
+    });
+    // highlight-by-label popover
+    document.getElementById('hlpop').addEventListener('click',e=>{
+      const b=e.target.closest('[data-act]'); if(!b) return;
+      const a=b.dataset.act;
+      if(a==='toggle-highlight-label'){
+        const id=b.dataset.id;
+        if(state.highlightLabels.has(id)) state.highlightLabels.delete(id); else state.highlightLabels.add(id);
+        renderHighlightPop(); View.highlight();
+        document.getElementById('highlight-btn')?.classList.toggle('on', state.highlightLabels.size>0);
+      }
+      if(a==='clear-highlight'){
+        state.highlightLabels.clear();
+        renderHighlightPop(); View.highlight();
+        document.getElementById('highlight-btn')?.classList.remove('on');
+      }
     });
     // save modal
     document.getElementById('save-modal').addEventListener('click',e=>{
@@ -541,12 +578,15 @@ const App = (()=>{
         const doc=Storage.loadNamed(b.dataset.key); if(!doc) return;
         Storage.hydrate(doc);
         state.selected=null; state.selectedUnion=null; state.mode='normal'; state.relPair=[]; state.relType=null;
+        state.highlightLabels.clear();
         closeDrawer();
         document.getElementById('relbar').classList.remove('open');
         document.body.classList.remove('relating');
         document.body.classList.remove('editing');
         document.getElementById('toggle-edit-btn')?.classList.remove('on');
         document.getElementById('legend').classList.remove('open');
+        document.getElementById('hlpop').classList.remove('open');
+        document.getElementById('highlight-btn')?.classList.remove('on');
         document.getElementById('search').value='';
         rerender(); View.fit(); updZoom();
         document.getElementById('open-modal').classList.remove('open');
@@ -593,6 +633,14 @@ const App = (()=>{
         const id=b.dataset.id, i=form.labelIds.indexOf(id);
         if(i===-1) form.labelIds.push(id); else form.labelIds.splice(i,1);
         b.classList.toggle('on', i===-1);
+      }
+      if(a==='toggle-label-live'){
+        const p=FAM.byId(state.selected); if(!p) return;
+        p.labelIds=p.labelIds||[];
+        const id=b.dataset.id, i=p.labelIds.indexOf(id);
+        if(i===-1) p.labelIds.push(id); else p.labelIds.splice(i,1);
+        b.classList.toggle('on', i===-1);
+        rerender(); Storage.autosave();
       }
       if(a==='manage-labels'){ renderLabelsModal(); document.getElementById('labels-modal').classList.add('open'); }
       if(a==='rmrel'){ }
@@ -677,7 +725,6 @@ const App = (()=>{
 
   function applyEmoVisibility(){
     document.getElementById('canvas').classList.toggle('hide-emo', !state.showEmo);
-    document.getElementById('toggle-emo-btn')?.classList.toggle('on', state.showEmo);
   }
 
   function deselectSilent(){ state.selected=null; state.selectedUnion=null; View.selection(); }

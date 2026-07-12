@@ -1029,6 +1029,7 @@ const View = (()=>{
       `<g class="layer-nodes">${nodes()}</g>`+
       `<g class="layer-emo">${emotional()}</g>`;
     selection();
+    highlight();
   }
 
   function list(){
@@ -1060,6 +1061,21 @@ const View = (()=>{
     document.querySelectorAll('.bus-handle').forEach(h=>h.classList.toggle('sel', h.dataset.uid===selU));
   }
 
+  // dim members that don't carry any of the currently highlighted labels
+  // (plus every connective line, so the matching members stand out) — a
+  // per-node/per-render pass like selection(), not baked into nodes()/
+  // structural(), since it's a live view toggle rather than part of the data
+  function highlight(){
+    const sel = App.state.highlightLabels;
+    const active = !!(sel && sel.size);
+    document.getElementById('canvas').classList.toggle('dim-lines', active);
+    document.querySelectorAll('.node').forEach(n=>{
+      const p=FAM.byId(n.dataset.id);
+      const match = p && (p.labelIds||[]).some(id=>sel.has(id));
+      n.classList.toggle('dim', active && !match);
+    });
+  }
+
   /* pan / zoom */
   const view={x:0,y:0,k:1};
   function apply(){ world.setAttribute('transform',`translate(${view.x},${view.y}) scale(${view.k})`); }
@@ -1088,6 +1104,6 @@ const View = (()=>{
     return { x:(clientX-r.left-view.x)/view.k, y:(clientY-r.top-view.y)/view.k };
   }
 
-  return { init, canvas, list, selection, fit, zoomBy, panBy, panView:view, zoomPct, resetView, toWorld,
+  return { init, canvas, list, selection, highlight, fit, zoomBy, panBy, panView:view, zoomPct, resetView, toWorld,
     exportPNG, printFit, printTiled, estimateTiles };
 })();
