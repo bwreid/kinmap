@@ -59,6 +59,7 @@ const REL_TYPES = {
     { key:'indifferent',  label:'Indifferent' },
     { key:'neglect',      label:'Neglect' },
     { key:'cutoff',       label:'Cutoff' },
+    { key:'cutoffRepaired', label:'Cutoff Repaired' },
   ],
 };
 const REL_BY_KEY = {};
@@ -123,6 +124,7 @@ const SYM = (()=>{
       case 'indifferent':  return wrap(`<path d="M2 ${y} H44" ${B} stroke-dasharray="2 5"/>`);
       case 'neglect':      return wrap(`<path d="M2 ${y} H36" ${B} stroke-dasharray="3 5"/><path d="M37 5 L44 9 L37 13" ${B}/>`);
       case 'cutoff':       return wrap(`<path d="M2 ${y} H44" ${B}/><path d="M20 3 V15 M26 3 V15" ${B}/>`);
+      case 'cutoffRepaired': return wrap(`<path d="M2 ${y} H44" ${B}/><path d="M17 3 V15 M29 3 V15" ${B}/><circle cx="23" cy="${y}" r="4" ${B}/>`);
       default:             return wrap(`<path d="M2 ${y} H44" ${B}/>`);
     }
   }
@@ -181,6 +183,15 @@ const SYM = (()=>{
         const [a1,b1]=[pt1.x+tan1.px*10, pt1.y+tan1.py*10], [a2,b2]=[pt1.x-tan1.px*10, pt1.y-tan1.py*10];
         const [c1,d1]=[pt2.x+tan2.px*10, pt2.y+tan2.py*10], [c2,d2]=[pt2.x-tan2.px*10, pt2.y-tan2.py*10];
         return line(0)+`<path class="emo" d="M${a1} ${b1} L${a2} ${b2} M${c1} ${d1} L${c2} ${d2}"/>`;
+      }
+      case 'cutoffRepaired': {
+        // same two cutoff tick marks, spread further apart to leave room for
+        // a small "repaired" circle sitting between them — reads as |o|
+        const pt1=qpoint(0.42), tan1=qtangent(0.42), pt2=qpoint(0.58), tan2=qtangent(0.58);
+        const [a1,b1]=[pt1.x+tan1.px*10, pt1.y+tan1.py*10], [a2,b2]=[pt1.x-tan1.px*10, pt1.y-tan1.py*10];
+        const [c1,d1]=[pt2.x+tan2.px*10, pt2.y+tan2.py*10], [c2,d2]=[pt2.x-tan2.px*10, pt2.y-tan2.py*10];
+        const mid=qpoint(0.5);
+        return line(0)+`<path class="emo" d="M${a1} ${b1} L${a2} ${b2} M${c1} ${d1} L${c2} ${d2}"/>`+`<circle class="emo" cx="${mid.x}" cy="${mid.y}" r="7"/>`;
       }
       default:            return line(0);
     }
