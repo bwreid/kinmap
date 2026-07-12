@@ -16,7 +16,7 @@ const App = (()=>{
     wire();
     applyEmoVisibility();
   }
-  function rerender(){ View.canvas(); View.list(); }
+  function rerender(){ View.canvas(); View.list(); buildLegend(); }
 
   /* ---------- selection ---------- */
   function select(id){
@@ -344,6 +344,43 @@ const App = (()=>{
     flash('New genogram started'); Storage.autosave();
   }
 
+  /* ---------- export modal ---------- */
+  let expOpts = { format:'png', pageSize:'letter', orientation:'auto', includeLegend:false };
+  function renderExportModal(){
+    const body=document.getElementById('export-modal-body');
+    const isPdf = expOpts.format==='pdf-fit' || expOpts.format==='pdf-tile';
+    const isJson = expOpts.format==='json';
+    const seg=(name,val,opts)=>`<div class="seg" data-seg="${name}">${opts.map(o=>`<button class="seg-b${o.v===val?' on':''}" data-v="${o.v}">${o.l}</button>`).join('')}</div>`;
+    let estimate='';
+    if(expOpts.format==='pdf-tile'){
+      const { cols, rows, orientation } = View.estimateTiles(expOpts.pageSize, expOpts.orientation, expOpts.includeLegend);
+      const n=cols*rows;
+      estimate=`<p class="exp-hint">≈ ${n} page${n===1?'':'s'} (${cols}×${rows} grid, ${orientation}) — print and align the overlapping edges to assemble.</p>`;
+    } else if(expOpts.format==='pdf-fit'){
+      estimate=`<p class="exp-hint">The whole tree is scaled down to fit one page — large families may end up small.</p>`;
+    }
+    body.innerHTML=`
+      <h3>Export genogram</h3>
+      <div class="fld"><label>Format</label>${seg('format',expOpts.format,[
+        {v:'json',l:'JSON'},{v:'png',l:'Image (PNG)'},{v:'pdf-fit',l:'PDF (Fit)'},{v:'pdf-tile',l:'PDF (Tiled)'}
+      ])}</div>
+      ${isPdf?`<div class="fld two">
+        <div><label>Page size</label>${seg('pagesize',expOpts.pageSize,[{v:'letter',l:'Letter'},{v:'a4',l:'A4'}])}</div>
+        <div><label>Orientation</label>${seg('orientation',expOpts.orientation,[{v:'auto',l:'Auto'},{v:'portrait',l:'Portrait'},{v:'landscape',l:'Landscape'}])}</div>
+      </div>${estimate}`:''}
+      ${isJson?'':`<label class="check exp-legend-check"><input type="checkbox" data-f="include-legend" ${expOpts.includeLegend?'checked':''}> Include legend (top-left corner)</label>`}
+      <div class="modal-foot">
+        <button class="btn ghost" data-act="export-cancel">Cancel</button>
+        <button class="btn primary" data-act="export-confirm">Export</button>
+      </div>`;
+  }
+  function runExport(){
+    if(expOpts.format==='json') Storage.exportJSON();
+    else if(expOpts.format==='png') View.exportPNG(expOpts.includeLegend).catch(err=>{ console.error(err); flash('Image export failed'); });
+    else if(expOpts.format==='pdf-fit') View.printFit(expOpts.pageSize, expOpts.orientation, expOpts.includeLegend);
+    else if(expOpts.format==='pdf-tile') View.printTiled(expOpts.pageSize, expOpts.orientation, expOpts.includeLegend);
+  }
+
   /* ---------- event wiring ---------- */
   function wire(){
     // toolbar
@@ -366,7 +403,7 @@ const App = (()=>{
         Storage.renderSavesList('saves-list');
         document.getElementById('open-modal').classList.add('open');
       }
-      if(a==='export'){ Storage.exportJSON(); }
+      if(a==='export'){ renderExportModal(); document.getElementById('export-modal').classList.add('open'); }
     });
     // floating stage controls (zoom, edit-positions) — live over the canvas,
     // not inside #topbar
@@ -391,6 +428,28 @@ const App = (()=>{
     });
     document.getElementById('new-modal').addEventListener('click',e=>{
       if(e.target===document.getElementById('new-modal')) document.getElementById('new-modal').classList.remove('open');
+    });
+    // export modal
+    document.getElementById('export-modal').addEventListener('click',e=>{
+      const segBtn=e.target.closest('.seg-b');
+      if(segBtn){
+        const grp=segBtn.closest('[data-seg]').dataset.seg;
+        expOpts[grp==='pagesize'?'pageSize':grp]=segBtn.dataset.v;
+        renderExportModal();
+        return;
+      }
+      const b=e.target.closest('[data-act]'); if(!b) return;
+      if(b.dataset.act==='export-cancel') document.getElementById('export-modal').classList.remove('open');
+      if(b.dataset.act==='export-confirm'){
+        document.getElementById('export-modal').classList.remove('open');
+        runExport();
+      }
+    });
+    document.getElementById('export-modal').addEventListener('click',e=>{
+      if(e.target===document.getElementById('export-modal')) document.getElementById('export-modal').classList.remove('open');
+    });
+    document.getElementById('export-modal').addEventListener('change',e=>{
+      if(e.target.dataset.f==='include-legend'){ expOpts.includeLegend=e.target.checked; renderExportModal(); }
     });
     // save modal
     document.getElementById('save-modal').addEventListener('click',e=>{
@@ -702,14 +761,19 @@ const App = (()=>{
 /* legend content builder */
 function buildLegend(){
   const el=document.getElementById('legend-body'); if(!el) return;
-  const ppl=[{sex:'m'},{sex:'f'},{sex:'m',index:true},{sex:'m',deceased:true},{sex:'u'}];
-  const lbl=['Male','Female','Index patient','Deceased','Unknown'];
-  const sym=ppl.map((p,i)=>`<div class="lg-row"><span class="lg-s">${SYM.mini(p,22)}</span>${lbl[i]}</div>`).join('');
-  const partner=REL_TYPES.partner.map(r=>`<div class="lg-row"><span class="lg-s">${SYM.relMini(r.key)}</span>${r.label}</div>`).join('');
-  const emo=REL_TYPES.emotional.map(r=>`<div class="lg-row"><span class="lg-s">${SYM.relMini(r.key)}</span>${r.label}</div>`).join('');
-  el.innerHTML=`<div class="lg-col"><div class="lg-h">Members</div>${sym}</div>
-    <div class="lg-col"><div class="lg-h">Partner / family</div>${partner}</div>
-    <div class="lg-col"><div class="lg-h">Emotional</div>${emo}</div>`;
+  const members=FAM.usedMemberTraits();
+  const partner=FAM.usedPartnerTypes();
+  const emo=FAM.usedEmotionalTypes();
+  const col=(title,rows,iconFn)=>rows.length?`<div class="lg-col"><div class="lg-h">${title}</div>${
+    rows.map(r=>`<div class="lg-row"><span class="lg-s">${iconFn(r)}</span>${r.label}</div>`).join('')
+  }</div>`:'';
+  const cols=[
+    col('Members', members, r=>SYM.mini(r.trait,22)),
+    col('Partner / family', partner, r=>SYM.relMini(r.key)),
+    col('Emotional', emo, r=>SYM.relMini(r.key)),
+  ].filter(Boolean);
+  el.style.gridTemplateColumns=`repeat(${cols.length||1},1fr)`;
+  el.innerHTML=cols.join('');
 }
 
 window.addEventListener('DOMContentLoaded',()=>{ App.init(); buildLegend(); });

@@ -754,6 +754,251 @@ const View = (()=>{
       </g>`; }).join('');
   }
 
+  /* ---- export: a clean, standalone rendering of the genogram ----
+     Shared foundation for PNG/PDF export. Builds the same three layers
+     canvas() does, but from a synthetic clean state rather than the live
+     App.state — no selection highlighting, no edit-mode bus-handles — and
+     honors the emotional-ties visibility toggle (canvas() relies on a pure
+     CSS hide, #canvas.hide-emo, which wouldn't apply to a detached SVG).
+     Synchronous, no DOM touched, so there's no visible flicker. */
+  function exportMarkup(includeLegend){
+    const savedMode=App.state.mode, savedSelU=App.state.selectedUnion;
+    App.state.mode='normal'; App.state.selectedUnion=null;
+    const inner = `<g class="layer-struct">${structural()}</g><g class="layer-nodes">${nodes()}</g>`
+      + (App.state.showEmo ? `<g class="layer-emo">${emotional()}</g>` : '');
+    App.state.mode=savedMode; App.state.selectedUnion=savedSelU;
+    // Layout.compute()'s bounds only reflects member POSITIONS, padded by a
+    // fixed constant — but the live #canvas has no viewBox at all (nothing
+    // is ever clipped on-screen), so a routed/bowed line (raised above its
+    // row to dodge an obstruction — see routedHeights()) can easily poke
+    // out further than that fixed padding assumes, and silently get cropped
+    // once an export gives it a real, tightly-sized viewBox. Measure the
+    // ACTUAL rendered geometry instead of guessing a padding: materialize
+    // the markup off-screen and read its true SVG bounding box.
+    const bounds=measureBounds(inner);
+    const bg=(getComputedStyle(document.documentElement).getPropertyValue('--canvas')||'').trim()||'#f4f0e8';
+    if(!includeLegend) return { inner, bounds, bg };
+
+    // grow the canvas upward (and rightward if the legend is wider than the
+    // tree itself) to fit the legend in the top-left corner — the tree's
+    // own content never moves or shrinks to make room
+    const legend=buildLegendMarkup();
+    const gap=24;
+    const legendInner=legend.render(bounds.minX+gap, bounds.minY-gap-legend.height);
+    const expanded={
+      minX: bounds.minX,
+      minY: bounds.minY - legend.height - gap*2,
+      maxX: Math.max(bounds.maxX, bounds.minX + legend.width + gap*2),
+      maxY: bounds.maxY,
+    };
+    return { inner: inner+`<g class="legend-export">${legendInner}</g>`, bounds:expanded, bg };
+  }
+
+  function measureBounds(inner){
+    const container=document.createElement('div');
+    container.style.cssText='position:fixed;left:-99999px;top:0;';
+    container.innerHTML=`<svg xmlns="${NS}"><g>${inner}</g></svg>`;
+    document.body.appendChild(container);
+    const bbox=container.querySelector('svg > g').getBBox();
+    document.body.removeChild(container);
+    // getBBox() is the *geometric* box only — it excludes stroke width, so
+    // pad a little to keep a ~2.4px-wide stroke sitting right at the edge
+    // from getting half-clipped
+    const pad=10;
+    return { minX:bbox.x-pad, minY:bbox.y-pad, maxX:bbox.x+bbox.width+pad, maxY:bbox.y+bbox.height+pad };
+  }
+
+  /* ---- legend, as pure SVG (for export only — the on-screen legend is an
+     HTML popover built by app.js's buildLegend(), which can't be embedded
+     directly in an exported SVG). Reuses the same SYM.mini/SYM.relMini icon
+     renderers the on-screen legend and relationship picker use, just laid
+     out on a fixed row/column grid instead of CSS flex/grid, so its exact
+     size is known analytically — no extra measurement pass needed. */
+  // only includes symbols/relationship types actually present in the
+  // current genogram (FAM.usedMemberTraits/usedPartnerTypes/usedEmotionalTypes,
+  // data.js) — same filtering the on-screen legend popover uses, so the two
+  // never disagree about what's "in" the legend
+  function buildLegendMarkup(){
+    const rowH=22, colW=196, pad=16, headerH=24, iconColW=50;
+    const cols=[
+      { title:'Members', rows:FAM.usedMemberTraits().map(r=>({icon:SYM.mini(r.trait,20), h:20, label:r.label})) },
+      { title:'Partner / family', rows:FAM.usedPartnerTypes().map(r=>({icon:SYM.relMini(r.key), h:18, label:r.label})) },
+      { title:'Emotional', rows:FAM.usedEmotionalTypes().map(r=>({icon:SYM.relMini(r.key), h:18, label:r.label})) },
+    ].filter(c=>c.rows.length);
+    const maxRows=cols.length?Math.max(...cols.map(c=>c.rows.length)):0;
+    const width=pad*2+colW*Math.max(cols.length,1);
+    const height=pad*2+headerH+rowH*maxRows;
+    function render(x0,y0){
+      let out=`<rect class="legend-panel" x="${x0}" y="${y0}" width="${width}" height="${height}" rx="10"/>`;
+      cols.forEach((col,ci)=>{
+        const cx=x0+pad+ci*colW;
+        out+=`<text class="legend-h" x="${cx}" y="${y0+pad+13}">${col.title.toUpperCase()}</text>`;
+        col.rows.forEach((row,ri)=>{
+          const ry=y0+pad+headerH+ri*rowH;
+          out+=`<g transform="translate(${cx},${ry+(rowH-row.h)/2})">${row.icon}</g>`;
+          out+=`<text class="legend-label" x="${cx+iconColW}" y="${ry+15}">${row.label}</text>`;
+        });
+      });
+      return out;
+    }
+    return { width, height, render };
+  }
+
+  // wrap exportMarkup()'s inner layers in a standalone <svg>, viewBox'd to
+  // an arbitrary world-space rect `vb` (not necessarily the full bounds —
+  // printTiled() slices the same inner markup into several rects) with
+  // explicit width/height (raw attribute strings — plain numbers for PNG
+  // rasterization, physical "in" units for print)
+  function buildExportSVG(inner, bg, vb, widthAttr, heightAttr){
+    return `<svg xmlns="${NS}" width="${widthAttr}" height="${heightAttr}" viewBox="${vb.x} ${vb.y} ${vb.w} ${vb.h}" preserveAspectRatio="xMidYMid meet">`
+      + `<rect x="${vb.x}" y="${vb.y}" width="${vb.w}" height="${vb.h}" fill="${bg}"/>`
+      + inner + `</svg>`;
+  }
+
+  // the handful of resolved style properties a rasterized export actually
+  // needs — copied inline since a Blob-loaded <img> has no access to the
+  // page's linked stylesheet at all
+  const EXPORT_STYLE_PROPS=['fill','stroke','stroke-width','stroke-dasharray',
+    'stroke-linecap','stroke-linejoin','font-family','font-size','font-weight','text-anchor','color'];
+  function inlineComputedStyles(el){
+    const cs=getComputedStyle(el);
+    let style='';
+    EXPORT_STYLE_PROPS.forEach(p=>{ const v=cs.getPropertyValue(p); if(v) style+=`${p}:${v};`; });
+    el.setAttribute('style', style);
+    Array.from(el.children).forEach(inlineComputedStyles);
+  }
+
+  /* ---- export as a PNG image, full resolution, any size ----
+     No page constraints — the isolated Blob->Image rasterization context
+     has no access to styles.css at all, so every element's resolved style
+     is inlined first via a temporary, off-screen-but-connected (not
+     display:none — getComputedStyle needs real layout) copy of the export
+     markup. Known, accepted limitation: the custom Archivo font can't be
+     fetched from that isolated context, so exported text falls back to a
+     plain sans-serif — deliberate, not a bug (see plan). Returns a Promise
+     resolving once the download has been triggered. */
+  function exportPNG(includeLegend){
+    return new Promise((resolve, reject)=>{
+      const { inner, bounds, bg } = exportMarkup(includeLegend);
+      const w=bounds.maxX-bounds.minX, h=bounds.maxY-bounds.minY;
+      const scale=2;
+      const pxW=Math.round(w*scale), pxH=Math.round(h*scale);
+      const svgStr=buildExportSVG(inner, bg, {x:bounds.minX,y:bounds.minY,w,h}, pxW, pxH);
+
+      const container=document.createElement('div');
+      container.style.cssText='position:fixed;left:-99999px;top:0;';
+      container.innerHTML=svgStr;
+      document.body.appendChild(container);
+      const svgEl=container.querySelector('svg');
+      Array.from(svgEl.children).forEach(inlineComputedStyles);
+      const finalStr=new XMLSerializer().serializeToString(svgEl);
+      document.body.removeChild(container);
+
+      const blob=new Blob([finalStr], {type:'image/svg+xml;charset=utf-8'});
+      const url=URL.createObjectURL(blob);
+      const img=new Image();
+      img.onload=()=>{
+        const canvasEl=document.createElement('canvas');
+        canvasEl.width=pxW; canvasEl.height=pxH;
+        canvasEl.getContext('2d').drawImage(img,0,0,pxW,pxH);
+        URL.revokeObjectURL(url);
+        canvasEl.toBlob(pngBlob=>{
+          const name=(Storage.serialize(null).name||'kinmap');
+          const a=document.createElement('a'); const pngUrl=URL.createObjectURL(pngBlob);
+          a.href=pngUrl; a.download=name+'.png';
+          document.body.appendChild(a); a.click();
+          document.body.removeChild(a); URL.revokeObjectURL(pngUrl);
+          resolve();
+        }, 'image/png');
+      };
+      img.onerror=(e)=>{ URL.revokeObjectURL(url); reject(e); };
+      img.src=url;
+    });
+  }
+
+  /* ---- printable PDF, via the browser's native print-to-PDF ----
+     No PDF library — window.print() + @page/@media print, matching the
+     project's zero-dependency philosophy. Two oversized-content strategies:
+     printFit() shrinks the whole tree to one page; printTiled() keeps it
+     near actual size and splits it across a grid of pages to be printed
+     and physically assembled. */
+  const PAGE_SIZES_IN = { letter:{w:8.5,h:11}, a4:{w:8.27,h:11.69} };
+  const PRINT_MARGIN_IN = 0.4, TILE_OVERLAP_IN = 0.25, PX_PER_IN = 96;
+
+  function pageDims(pageSize, orientation){
+    const base=PAGE_SIZES_IN[pageSize]||PAGE_SIZES_IN.letter;
+    const w=orientation==='landscape'?base.h:base.w, h=orientation==='landscape'?base.w:base.h;
+    return { w, h, usableW:w-2*PRINT_MARGIN_IN, usableH:h-2*PRINT_MARGIN_IN };
+  }
+  // "auto" picks whichever orientation needs less shrinking to fit the
+  // whole tree on one page — used directly by printFit(), and as printTiled()'s
+  // heuristic too, since less shrinking on a single page also tends to
+  // minimize the total tile count
+  function chooseOrientation(pageSize, orientation, contentW, contentH){
+    if(orientation!=='auto') return orientation;
+    const scaleFor=o=>{ const d=pageDims(pageSize,o); return Math.min(d.usableW*PX_PER_IN/contentW, d.usableH*PX_PER_IN/contentH); };
+    return scaleFor('landscape')>scaleFor('portrait') ? 'landscape' : 'portrait';
+  }
+  function setPrintPageCSS(pageSize, orientation){
+    let style=document.getElementById('print-page-style');
+    if(!style){ style=document.createElement('style'); style.id='print-page-style'; document.head.appendChild(style); }
+    style.textContent=`@page{size:${pageSize} ${orientation};margin:${PRINT_MARGIN_IN}in;}`;
+  }
+  function runPrint(pagesHTML, pageSize, orientation){
+    setPrintPageCSS(pageSize, orientation);
+    const area=document.getElementById('print-area');
+    area.innerHTML=pagesHTML;
+    const cleanup=()=>{ area.innerHTML=''; window.removeEventListener('afterprint',cleanup); };
+    window.addEventListener('afterprint', cleanup);
+    window.print();
+  }
+
+  // how many tiled pages a given page size/orientation would produce —
+  // exposed on its own so the export modal can show a live "~N pages"
+  // estimate without actually printing anything
+  function estimateTiles(pageSize, orientation, includeLegend){
+    const { bounds } = exportMarkup(includeLegend);
+    const contentW=bounds.maxX-bounds.minX, contentH=bounds.maxY-bounds.minY;
+    const finalOrientation=chooseOrientation(pageSize, orientation, contentW, contentH);
+    const d=pageDims(pageSize, finalOrientation);
+    const cols=Math.max(1,Math.ceil(contentW/(d.usableW*PX_PER_IN)));
+    const rows=Math.max(1,Math.ceil(contentH/(d.usableH*PX_PER_IN)));
+    return { cols, rows, orientation:finalOrientation };
+  }
+
+  function printFit(pageSize, orientation, includeLegend){
+    const { inner, bounds, bg } = exportMarkup(includeLegend);
+    const contentW=bounds.maxX-bounds.minX, contentH=bounds.maxY-bounds.minY;
+    const finalOrientation=chooseOrientation(pageSize, orientation, contentW, contentH);
+    const d=pageDims(pageSize, finalOrientation);
+    const svg=buildExportSVG(inner, bg, {x:bounds.minX,y:bounds.minY,w:contentW,h:contentH}, d.usableW+'in', d.usableH+'in');
+    runPrint(`<div class="print-page">${svg}</div>`, pageSize, finalOrientation);
+  }
+
+  function printTiled(pageSize, orientation, includeLegend){
+    const { inner, bounds, bg } = exportMarkup(includeLegend);
+    const contentW=bounds.maxX-bounds.minX, contentH=bounds.maxY-bounds.minY;
+    const { cols, rows, orientation:finalOrientation } = estimateTiles(pageSize, orientation, includeLegend);
+    const d=pageDims(pageSize, finalOrientation);
+    const usableWpx=d.usableW*PX_PER_IN, usableHpx=d.usableH*PX_PER_IN, overlapPx=TILE_OVERLAP_IN*PX_PER_IN;
+    let html='';
+    for(let r=0;r<rows;r++){
+      for(let c=0;c<cols;c++){
+        const loOv=c>0?overlapPx:0, hiOv=c<cols-1?overlapPx:0;
+        const topOv=r>0?overlapPx:0, botOv=r<rows-1?overlapPx:0;
+        const vb={
+          x: bounds.minX + c*usableWpx - loOv,
+          y: bounds.minY + r*usableHpx - topOv,
+          w: usableWpx + loOv + hiOv,
+          h: usableHpx + topOv + botOv,
+        };
+        const svg=buildExportSVG(inner, bg, vb, d.usableW+'in', d.usableH+'in');
+        html+=`<div class="print-page">${svg}<div class="print-page-label">Row ${r+1} of ${rows} · Col ${c+1} of ${cols}</div></div>`;
+      }
+    }
+    runPrint(html, pageSize, finalOrientation);
+  }
+
   function canvas(){
     lastBounds = Layout.compute();
     world.innerHTML =
@@ -820,5 +1065,6 @@ const View = (()=>{
     return { x:(clientX-r.left-view.x)/view.k, y:(clientY-r.top-view.y)/view.k };
   }
 
-  return { init, canvas, list, selection, fit, zoomBy, panBy, panView:view, zoomPct, resetView, toWorld };
+  return { init, canvas, list, selection, fit, zoomBy, panBy, panView:view, zoomPct, resetView, toWorld,
+    exportPNG, printFit, printTiled, estimateTiles };
 })();

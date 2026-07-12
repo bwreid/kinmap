@@ -32,6 +32,28 @@ const FAM = {
   primaryUnion(id){ return this.partnerUnions(id)[0] || null; },
   relsOf(id){ return this.rels.filter(r=>r.a===id||r.b===id); },
   index(){ return this.people.find(p=>p.index); },
+  // which legend rows are actually relevant to THIS genogram — used by both
+  // the on-screen legend popover and the export legend, so a pared-down
+  // legend only ever shows symbols/relationship types that appear somewhere
+  // in the current data, not the app's full vocabulary
+  usedMemberTraits(){
+    const has=pred=>this.people.some(pred);
+    const out=[];
+    if(has(p=>p.sex==='m')) out.push({ trait:{sex:'m'}, label:'Male' });
+    if(has(p=>p.sex==='f')) out.push({ trait:{sex:'f'}, label:'Female' });
+    if(has(p=>p.index)) out.push({ trait:{sex:'m',index:true}, label:'Index patient' });
+    if(has(p=>p.deceased)) out.push({ trait:{sex:'m',deceased:true}, label:'Deceased' });
+    if(has(p=>p.sex==='u')) out.push({ trait:{sex:'u'}, label:'Unknown' });
+    return out;
+  },
+  usedPartnerTypes(){
+    const used=new Set(this.unions.map(u=>u.type));
+    return REL_TYPES.partner.filter(t=>used.has(t.key));
+  },
+  usedEmotionalTypes(){
+    const used=new Set(this.rels.map(r=>r.type));
+    return REL_TYPES.emotional.filter(t=>used.has(t.key));
+  },
   _n:100,
   uid(pfx){ return pfx + (++this._n); },
 };
