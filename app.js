@@ -353,16 +353,8 @@ const App = (()=>{
       if(a==='add'){ deselectSilent(); openDrawer('add'); }
       if(a==='relate'){ enterRelate(state.selected); }
       if(a==='fit'){ View.fit(); updZoom(); }
-      if(a==='zin'){ View.zoomBy(1.2); updZoom(); }
-      if(a==='zout'){ View.zoomBy(1/1.2); updZoom(); }
       if(a==='legend'){ document.getElementById('legend').classList.toggle('open'); }
       if(a==='toggle-emo'){ state.showEmo=!state.showEmo; applyEmoVisibility(); }
-      if(a==='toggle-edit'){ state.mode==='edit'?exitEdit():enterEdit(); }
-      if(a==='reset-all-pos'){
-        resetRowOrder(FAM.people.map(p=>p.id));
-        FAM.unions.forEach(u=>delete u.busOffset);
-        rerender(); flash('All manual positions reset'); Storage.autosave();
-      }
       if(a==='new'){ newGenogram(); }
       if(a==='save'){
         if(FAM.people.length===0){ flash('Nothing to save'); return; }
@@ -375,6 +367,20 @@ const App = (()=>{
         document.getElementById('open-modal').classList.add('open');
       }
       if(a==='export'){ Storage.exportJSON(); }
+    });
+    // floating stage controls (zoom, edit-positions) — live over the canvas,
+    // not inside #topbar
+    document.getElementById('stage-canvas').addEventListener('click',e=>{
+      const b=e.target.closest('[data-act]'); if(!b) return;
+      const a=b.dataset.act;
+      if(a==='zin'){ View.zoomBy(1.2); updZoom(); }
+      if(a==='zout'){ View.zoomBy(1/1.2); updZoom(); }
+      if(a==='toggle-edit'){ state.mode==='edit'?exitEdit():enterEdit(); }
+      if(a==='reset-all-pos'){
+        resetRowOrder(FAM.people.map(p=>p.id));
+        FAM.unions.forEach(u=>delete u.busOffset);
+        rerender(); flash('All manual positions reset'); Storage.autosave();
+      }
     });
     // new-genogram modal
     document.getElementById('new-modal').addEventListener('click',e=>{

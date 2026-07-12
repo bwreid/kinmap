@@ -28,9 +28,6 @@
       <button class="tbtn" data-act="fit"><span class="i">⤢</span> Fit</button>
       <button class="tbtn" data-act="legend"><span class="i">⊞</span> Legend</button>
       <button class="tbtn on" data-act="toggle-emo" id="toggle-emo-btn" title="Show/hide emotional ties"><span class="i">∿</span> Emotional ties</button>
-      <div class="tb-div"></div>
-      <button class="tbtn" data-act="toggle-edit" id="toggle-edit-btn" title="Drag members to reorder within their row"><span class="i">⇄</span> Edit positions</button>
-      <button class="tbtn" data-act="reset-all-pos" id="reset-pos-btn" title="Clear all manual positions"><span class="i">↺</span> Reset positions</button>
     </div>
   </header>
 
@@ -44,12 +41,16 @@
 
     <!-- stage -->
     <section class="stage">
-      <div class="stage-canvas">
+      <div class="stage-canvas" id="stage-canvas">
         <svg id="canvas"><g id="world"></g></svg>
         <div class="zoomctl">
           <button data-act="zout" title="Zoom out">−</button>
           <span class="zpct" id="zpct">100%</span>
           <button data-act="zin" title="Zoom in">＋</button>
+        </div>
+        <div class="editctl">
+          <button class="tbtn" data-act="toggle-edit" id="toggle-edit-btn" title="Drag members to reorder within their row"><span class="i">⇄</span> Edit positions</button>
+          <button class="tbtn" data-act="reset-all-pos" id="reset-pos-btn" title="Clear all manual positions"><span class="i">↺</span> Reset positions</button>
         </div>
         <div class="legend" id="legend"><div class="legend-body" id="legend-body"></div></div>
         <div class="toast" id="toast"></div>

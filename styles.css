@@ -124,6 +124,8 @@ body.editing .bus-handle:active{cursor:grabbing}
 .zoomctl button{width:30px;height:30px;border:none;background:none;border-radius:6px;font-size:17px;color:var(--ink-2)}
 .zoomctl button:hover{background:var(--panel-2)}
 .zoomctl .zpct{font-size:12px;color:var(--ink-2);min-width:42px;text-align:center;font-variant-numeric:tabular-nums}
+.editctl{position:absolute;right:16px;bottom:16px;display:flex;gap:8px}
+.editctl .tbtn{box-shadow:var(--shadow-s)}
 .stage-tr{position:absolute;right:16px;top:14px;display:flex;gap:8px}
 
 /* legend popover */
@@ -147,7 +149,7 @@ body.editing .bus-handle:active{cursor:grabbing}
 .drawer-body{flex:1;overflow:auto;padding:18px 20px}
 .fld{margin-bottom:15px}
 .fld.two{display:grid;grid-template-columns:1fr 1.3fr;gap:12px}
-.fld>label{display:block;font-size:12px;font-weight:600;color:var(--ink-2);margin-bottom:6px}
+.fld label{display:block;font-size:12px;font-weight:600;color:var(--ink-2);margin-bottom:6px}
 .inp{width:100%;height:38px;border:1px solid var(--line-2);background:var(--panel-2);border-radius:var(--radius-s);
   padding:0 11px;font:inherit;font-size:14px;color:var(--ink)}
 select.inp{appearance:none;background-image:linear-gradient(45deg,transparent 50%,var(--ink-3) 50%),linear-gradient(135deg,var(--ink-3) 50%,transparent 50%);
