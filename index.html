@@ -25,10 +25,7 @@
       <button class="tbtn primary" data-act="add"><span class="i">＋</span> Add member</button>
       <button class="tbtn" data-act="relate"><span class="i">⟂</span> Add relationship</button>
       <div class="tb-div"></div>
-      <button class="tbtn" data-act="fit"><span class="i">⤢</span> Fit</button>
-      <button class="tbtn" data-act="legend"><span class="i">⊞</span> Legend</button>
-      <button class="tbtn" data-act="manage-labels">Manage labels</button>
-      <button class="tbtn on" data-act="toggle-emo" id="toggle-emo-btn" title="Show/hide emotional ties"><span class="i">∿</span> Emotional ties</button>
+      <button class="tbtn" data-act="manage-labels">Labels</button>
     </div>
   </header>
 
@@ -44,7 +41,13 @@
     <section class="stage">
       <div class="stage-canvas" id="stage-canvas">
         <svg id="canvas"><g id="world"></g></svg>
+        <div class="viewctl">
+          <button class="tbtn" data-act="legend"><span class="i">⊞</span> Legend</button>
+          <button class="tbtn iconbtn on" data-act="toggle-emo" id="toggle-emo-btn" title="Show/hide emotional ties"><span class="i"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></svg></span><span class="lbl">Emotional ties</span></button>
+        </div>
         <div class="zoomctl">
+          <button data-act="fit" title="Fit to screen">⤢</button>
+          <div class="tb-div"></div>
           <button data-act="zout" title="Zoom out">−</button>
           <span class="zpct" id="zpct">100%</span>
           <button data-act="zin" title="Zoom in">＋</button>

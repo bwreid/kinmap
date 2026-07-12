@@ -51,6 +51,7 @@ button{font-family:inherit;cursor:pointer}
 .tbtn.primary{background:var(--accent);border-color:var(--accent-d);color:#fff}
 .tbtn.primary:hover{background:var(--accent-d)}
 .tbtn .i{font-size:15px;line-height:1}
+.tbtn .i svg{display:block}
 .tbtn.on{color:var(--accent-d);border-color:var(--accent-soft);background:var(--accent-tint)}
 .tb-div{width:1px;height:24px;background:var(--line)}
 
@@ -127,6 +128,12 @@ body.editing .bus-handle:active{cursor:grabbing}
 .zoomctl .zpct{font-size:12px;color:var(--ink-2);min-width:42px;text-align:center;font-variant-numeric:tabular-nums}
 .editctl{position:absolute;right:16px;bottom:16px;display:flex;gap:8px}
 .editctl .tbtn{box-shadow:var(--shadow-s)}
+.viewctl{position:absolute;left:16px;top:16px;display:flex;gap:8px}
+.viewctl .tbtn{box-shadow:var(--shadow-s)}
+.iconbtn{gap:0;overflow:hidden}
+.iconbtn .lbl{display:inline-block;max-width:0;margin-left:0;opacity:0;white-space:nowrap;
+  transition:max-width .18s ease,margin-left .18s ease,opacity .12s ease}
+.iconbtn:hover .lbl,.iconbtn:focus-visible .lbl{max-width:120px;margin-left:7px;opacity:1}
 .stage-tr{position:absolute;right:16px;top:14px;display:flex;gap:8px}
 
 /* legend popover */

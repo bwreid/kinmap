@@ -431,9 +431,6 @@ const App = (()=>{
       const a=b.dataset.act;
       if(a==='add'){ deselectSilent(); openDrawer('add'); }
       if(a==='relate'){ enterRelate(state.selected); }
-      if(a==='fit'){ View.fit(); updZoom(); }
-      if(a==='legend'){ document.getElementById('legend').classList.toggle('open'); }
-      if(a==='toggle-emo'){ state.showEmo=!state.showEmo; applyEmoVisibility(); }
       if(a==='new'){ newGenogram(); }
       if(a==='save'){
         if(FAM.people.length===0){ flash('Nothing to save'); return; }
@@ -448,11 +445,14 @@ const App = (()=>{
       if(a==='export'){ renderExportModal(); document.getElementById('export-modal').classList.add('open'); }
       if(a==='manage-labels'){ renderLabelsModal(); document.getElementById('labels-modal').classList.add('open'); }
     });
-    // floating stage controls (zoom, edit-positions) — live over the canvas,
-    // not inside #topbar
+    // floating stage controls (view, zoom, edit-positions) — live over the
+    // canvas, not inside #topbar
     document.getElementById('stage-canvas').addEventListener('click',e=>{
       const b=e.target.closest('[data-act]'); if(!b) return;
       const a=b.dataset.act;
+      if(a==='fit'){ View.fit(); updZoom(); }
+      if(a==='legend'){ document.getElementById('legend').classList.toggle('open'); }
+      if(a==='toggle-emo'){ state.showEmo=!state.showEmo; applyEmoVisibility(); }
       if(a==='zin'){ View.zoomBy(1.2); updZoom(); }
       if(a==='zout'){ View.zoomBy(1/1.2); updZoom(); }
       if(a==='toggle-edit'){ state.mode==='edit'?exitEdit():enterEdit(); }
