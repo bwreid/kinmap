@@ -741,6 +741,28 @@ const View = (()=>{
       return `<g class="emo-g" data-rel="${r.a}__${r.b}">${SYM.emotional(r.type,pa.x,pa.y,pb.x,pb.y,bow)}</g>`; }).join('');
   }
 
+  // the age/deceased sub-line, plus this member's label icons appended
+  // right after it as one centered unit — if there's no sub-text, the
+  // icons alone are centered on that same line. Text width is a rough
+  // per-character estimate (no live DOM measurement here), which is fine
+  // for a small cosmetic line — same approximation already used for the
+  // legend's fixed column widths.
+  function renderSubLine(sub, labels, y){
+    labels = labels || [];
+    if(!sub && !labels.length) return '';
+    const iconSize=13, iconGap=3, textGap=6, charW=6.4;
+    const textW = sub ? sub.length*charW : 0;
+    const iconsW = labels.length ? labels.length*iconSize + (labels.length-1)*iconGap : 0;
+    const totalW = textW + (sub && labels.length ? textGap : 0) + iconsW;
+    let x = -totalW/2, out='';
+    if(sub){ out += `<text class="nsub" x="${x+textW/2}" y="${y}" text-anchor="middle">${sub}</text>`; x += textW + (labels.length?textGap:0); }
+    labels.forEach(l=>{
+      out += `<g class="label-icon" transform="translate(${x},${y-iconSize+1})">${renderLabelIcon(l.icon,iconSize,l.color)}</g>`;
+      x += iconSize+iconGap;
+    });
+    return out;
+  }
+
   function nodes(){
     return FAM.people.map(p=>{ const pt=POS[p.id]; if(!pt) return '';
       const sub = p.deceased ? `${p.dInfo||'deceased'}${p.age?` · ${p.age}`:''}` : (p.age!=null?`${p.age}`:'');
@@ -749,7 +771,7 @@ const View = (()=>{
         <rect class="halo" x="${-LC.S/2-8}" y="${-LC.S/2-8}" width="${LC.S+16}" height="${LC.S+16}" rx="12"/>
         <g class="sym">${SYM.shape(p)}</g>
         <text class="nlbl" x="0" y="${LC.S/2+20}" text-anchor="middle">${p.name}</text>
-        ${sub?`<text class="nsub" x="0" y="${LC.S/2+(p.index?54:36)}" text-anchor="middle">${sub}</text>`:''}
+        ${renderSubLine(sub, (p.labelIds||[]).map(id=>FAM.labelDef(id)).filter(Boolean), LC.S/2+(p.index?54:36))}
         ${badge}
       </g>`; }).join('');
   }
@@ -824,6 +846,7 @@ const View = (()=>{
       { title:'Members', rows:FAM.usedMemberTraits().map(r=>({icon:SYM.mini(r.trait,20), h:20, label:r.label})) },
       { title:'Partner / family', rows:FAM.usedPartnerTypes().map(r=>({icon:SYM.relMini(r.key), h:18, label:r.label})) },
       { title:'Emotional', rows:FAM.usedEmotionalTypes().map(r=>({icon:SYM.relMini(r.key), h:18, label:r.label})) },
+      { title:'Labels', rows:FAM.usedLabels().map(r=>({icon:renderLabelIcon(r.icon,16,r.color), h:16, label:r.desc})) },
     ].filter(c=>c.rows.length);
     const maxRows=cols.length?Math.max(...cols.map(c=>c.rows.length)):0;
     const width=pad*2+colW*Math.max(cols.length,1);

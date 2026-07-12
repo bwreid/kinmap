@@ -25,8 +25,21 @@ const FAM = {
     { a:'marcus', b:'lena',   type:'close' },
     { a:'father', b:'pgf',    type:'cutoff' },
   ],
+  // central registry of member labels — { id, icon, desc, color } — created
+  // and deleted only from the "Manage labels" screen; people reference these
+  // by id (p.labelIds) rather than embedding their own copy
+  labelDefs: [],
 
   byId(id){ return this.people.find(p=>p.id===id); },
+  labelDef(id){ return this.labelDefs.find(l=>l.id===id); },
+  addLabelDef({icon,desc,color}){
+    const l={ id:this.uid('lbl'), icon, desc, color:color||null };
+    this.labelDefs.push(l); return l;
+  },
+  removeLabelDef(id){
+    this.labelDefs=this.labelDefs.filter(l=>l.id!==id);
+    this.people.forEach(p=>{ if(p.labelIds) p.labelIds=p.labelIds.filter(x=>x!==id); });
+  },
   parentsUnion(id){ return this.unions.find(u=>u.children.includes(id)); },
   partnerUnions(id){ return this.unions.filter(u=>u.partners.includes(id)); },
   primaryUnion(id){ return this.partnerUnions(id)[0] || null; },
@@ -53,6 +66,12 @@ const FAM = {
   usedEmotionalTypes(){
     const used=new Set(this.rels.map(r=>r.type));
     return REL_TYPES.emotional.filter(t=>used.has(t.key));
+  },
+  // labelDefs actually assigned to at least one member — used by both the
+  // on-screen legend popover and the export legend, so unused labels (defined
+  // centrally but not yet applied to anyone) don't clutter the legend
+  usedLabels(){
+    return this.labelDefs.filter(l=>this.people.some(p=>(p.labelIds||[]).includes(l.id)));
   },
   _n:100,
   uid(pfx){ return pfx + (++this._n); },

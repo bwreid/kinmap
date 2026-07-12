@@ -102,6 +102,7 @@ button{font-family:inherit;cursor:pointer}
 .node.is-dec .sym :is(rect,circle){fill:#efe9dd}
 .nlbl{font-family:'Archivo';font-size:14px;font-weight:600;fill:var(--ink)}
 .nsub{font-family:'Archivo';font-size:12px;fill:var(--ink-3);font-variant-numeric:tabular-nums}
+.label-icon{color:var(--ink-3)}
 .nlbl-ip{font-family:'Archivo';font-size:10.5px;font-weight:600;letter-spacing:.4px;fill:var(--accent);text-transform:uppercase}
 .node.sel .sym :is(rect,circle){stroke:var(--accent)}
 .node.sel .halo{stroke:var(--accent);stroke-width:2;fill:rgba(185,116,63,.07)}
@@ -205,6 +206,35 @@ select.inp{appearance:none;background-image:linear-gradient(45deg,transparent 50
   background-position:calc(100% - 13px) 9px,calc(100% - 9px) 9px;background-size:4px 4px;background-repeat:no-repeat}
 .union-row .rx{border:none;background:none;color:var(--ink-3);font-size:12px;width:22px;height:22px;border-radius:5px;flex:0 0 auto}
 .union-row .rx:hover{background:#f0e2db;color:var(--danger)}
+
+/* member label picker (icon/color pickers reused by the manage-labels modal;
+   label-chip reused as the per-member toggle list) */
+.labels-fld{margin-top:20px}
+.linklike{background:none;border:none;padding:0;font:inherit;color:var(--accent);text-decoration:underline;cursor:pointer}
+.label-picker{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:7px}
+.label-ic-b{width:26px;height:26px;border:1px solid var(--line-2);border-radius:6px;background:var(--panel);
+  color:var(--ink-3);display:flex;align-items:center;justify-content:center;flex:0 0 auto}
+.label-ic-b:hover{background:var(--panel-2)}
+.label-ic-b.on{background:var(--accent);border-color:var(--accent-d);color:#fff}
+.label-color-picker{display:flex;flex-wrap:wrap;gap:6px;margin-top:7px}
+.label-color-b{width:18px;height:18px;border-radius:50%;border:1px solid var(--line-2);flex:0 0 auto;padding:0}
+.label-color-b.on{box-shadow:0 0 0 2px var(--panel),0 0 0 4px var(--accent)}
+.label-existing-list{display:flex;flex-wrap:wrap;gap:6px}
+.label-chip{display:flex;align-items:center;gap:5px;padding:5px 10px 5px 7px;border-radius:20px;
+  background:var(--panel-2);border:1px solid var(--line-2);color:var(--ink-2);font-size:12px;font-weight:500}
+.label-chip:hover{background:var(--panel);border-color:var(--accent-soft)}
+.label-chip svg{flex:0 0 auto;color:var(--ink-3)}
+.label-chip.on{background:var(--accent);border-color:var(--accent-d);color:#fff}
+.label-chip.on svg{color:#fff}
+
+/* manage-labels modal list */
+.labeldef-list{display:flex;flex-direction:column;gap:5px;margin-bottom:6px;max-height:280px;overflow-y:auto}
+.labeldef-row{display:flex;align-items:center;gap:10px;padding:7px 8px;border-radius:7px;background:var(--panel-2)}
+.lbldef-ic{color:var(--ink-3);display:flex;flex:0 0 auto}
+.lbldef-desc{font-size:13px;font-weight:500;flex:1}
+.lbldef-count{font-size:11.5px;color:var(--ink-3)}
+.labeldef-row .rx{border:none;background:none;color:var(--ink-3);font-size:12px;width:22px;height:22px;border-radius:5px;flex:0 0 auto}
+.labeldef-row .rx:hover{background:#f0e2db;color:var(--danger)}
 
 /* ---------- bottom relationship bar ---------- */
 .relbar{flex:0 0 auto;background:var(--panel);border-top:1px solid var(--line);

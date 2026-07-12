@@ -20,17 +20,38 @@ const Storage = (() => {
           children: [...u.children], ...(u.root ? { root: true } : {}),
           busOffset: u.busOffset
         })),
-        rels: FAM.rels.map(r => ({ ...r }))
+        rels: FAM.rels.map(r => ({ ...r })),
+        labelDefs: FAM.labelDefs.map(l => ({ ...l }))
       }
     };
   }
 
+  // saves from before the central label registry existed stored each member's
+  // labels as embedded {icon,desc,color} copies (p.labels) instead of ids
+  // referencing FAM.labelDefs (p.labelIds) — fold those into the registry
+  // (deduping identical icon+desc+color combos) so old saves keep working
+  function migrateLegacyLabels() {
+    const seen = new Map();
+    FAM.people.forEach(p => {
+      if (!p.labels) return;
+      p.labelIds = p.labels.map(l => {
+        const key = l.icon + '|' + l.desc + '|' + (l.color || '');
+        let def = seen.get(key);
+        if (!def) { def = FAM.addLabelDef(l); seen.set(key, def); }
+        return def.id;
+      });
+      delete p.labels;
+    });
+  }
+
   function hydrate(doc) {
     const d = doc.data;
-    FAM._n     = d._n;
-    FAM.people = d.people.map(p => ({ ...p }));
-    FAM.unions = d.unions.map(u => ({ ...u, partners: [...u.partners], children: [...u.children] }));
-    FAM.rels   = d.rels.map(r => ({ ...r }));
+    FAM._n        = d._n;
+    FAM.people    = d.people.map(p => ({ ...p }));
+    FAM.unions    = d.unions.map(u => ({ ...u, partners: [...u.partners], children: [...u.children] }));
+    FAM.rels      = d.rels.map(r => ({ ...r }));
+    FAM.labelDefs = (d.labelDefs || []).map(l => ({ ...l }));
+    migrateLegacyLabels();
   }
 
   function autosave() {

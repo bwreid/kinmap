@@ -27,6 +27,7 @@
       <div class="tb-div"></div>
       <button class="tbtn" data-act="fit"><span class="i">⤢</span> Fit</button>
       <button class="tbtn" data-act="legend"><span class="i">⊞</span> Legend</button>
+      <button class="tbtn" data-act="manage-labels">Manage labels</button>
       <button class="tbtn on" data-act="toggle-emo" id="toggle-emo-btn" title="Show/hide emotional ties"><span class="i">∿</span> Emotional ties</button>
     </div>
   </header>
@@ -107,10 +108,16 @@
   <div class="modal" style="width:460px" id="export-modal-body"></div>
 </div>
 
+<!-- manage labels modal (filled by app: label registry list + add form) -->
+<div class="modal-overlay" id="labels-modal">
+  <div class="modal" style="width:460px" id="labels-modal-body"></div>
+</div>
+
 <!-- print-only rendering target; populated just before window.print(), hidden
      otherwise; everything else is hidden via @media print -->
 <div id="print-area"></div>
 
+<script src="icons.js"></script>
 <script src="data.js"></script>
 <script src="storage.js"></script>
 <script src="engine.js"></script>

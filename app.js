@@ -85,9 +85,20 @@ const App = (()=>{
   }
 
   /* ---------- edit-member form ---------- */
+  function renderLabelsFld(){
+    if(!FAM.labelDefs.length) return `<div class="fld labels-fld" data-labels-fld>
+      <label>Labels</label>
+      <p class="hint">No labels defined yet — use <button class="linklike" data-act="manage-labels">Manage labels</button> to create one.</p>
+    </div>`;
+    const chips=FAM.labelDefs.map(l=>`<button class="label-chip${(form.labelIds||[]).includes(l.id)?' on':''}" data-act="toggle-label" data-id="${l.id}">${renderLabelIcon(l.icon,14,l.color)}<span>${l.desc}</span></button>`).join('');
+    return `<div class="fld labels-fld" data-labels-fld>
+      <label>Labels</label>
+      <div class="label-existing-list">${chips}</div>
+    </div>`;
+  }
   function editForm(){
     const p=FAM.byId(state.selected); if(!p) return '';
-    form = { name:p.name, sex:p.sex, deceased:!!p.deceased, conn:p.conn||'bio' };
+    form = { name:p.name, sex:p.sex, deceased:!!p.deceased, conn:p.conn||'bio', labelIds:[...(p.labelIds||[])] };
     const seg=(opts,val,grp)=>opts.map(o=>`<button class="seg-b${o.v===val?' on':''}" data-grp="${grp}" data-v="${o.v}">${o.l}</button>`).join('');
     const hasParents = !!FAM.parentsUnion(p.id);
     return `
@@ -100,6 +111,7 @@ const App = (()=>{
       <div class="fld" data-dinfo-fld style="${p.deceased?'':'display:none'}"><label>Death detail</label><input class="inp" data-f="dinfo" value="${p.dInfo||''}" placeholder="e.g. d. 2014"></div>
       ${hasParents?`<div class="fld"><label>Biological connection</label><div class="seg" data-seg="conn">${seg([{v:'bio',l:'Biological'},{v:'adopted',l:'Adopted'},{v:'foster',l:'Foster'}],p.conn||'bio','conn')}</div></div>`:''}
       <label class="check"><input type="checkbox" data-f="index" ${p.index?'checked':''}> Mark as index patient</label>
+      ${renderLabelsFld()}
     </div>
     <div class="drawer-foot">
       <button class="btn ghost" data-act="close">Cancel</button>
@@ -227,6 +239,7 @@ const App = (()=>{
     if(p.deceased) p.dInfo=dinfo||'deceased'; else delete p.dInfo;
     if(FAM.parentsUnion(p.id)) p.conn=form.conn;
     if(idx) FAM.people.forEach(x=>x.index=(x===p)); else p.index=false;
+    p.labelIds=[...(form.labelIds||[])];
 
     rerender(); View.selection(); openDrawer('inspect');
     flash(p.name+' updated'); Storage.autosave();
@@ -381,6 +394,35 @@ const App = (()=>{
     else if(expOpts.format==='pdf-tile') View.printTiled(expOpts.pageSize, expOpts.orientation, expOpts.includeLegend);
   }
 
+  /* ---------- manage-labels modal ---------- */
+  let labelDraft = { icon:LABEL_ICONS[0].key, desc:'', color:null };
+  function renderLabelsModal(){
+    const body=document.getElementById('labels-modal-body');
+    const rows=FAM.labelDefs.map(l=>{
+      const n=FAM.people.filter(p=>(p.labelIds||[]).includes(l.id)).length;
+      return `<div class="labeldef-row">
+        <span class="lbldef-ic">${renderLabelIcon(l.icon,18,l.color)}</span>
+        <span class="lbldef-desc">${l.desc}</span>
+        <span class="lbldef-count">${n} member${n===1?'':'s'}</span>
+        <button class="rx" data-act="remove-labeldef" data-id="${l.id}" title="Delete label">✕</button>
+      </div>`;
+    }).join('');
+    body.innerHTML=`
+      <h3>Manage labels</h3>
+      <div class="labeldef-list">${rows||'<p class="hint">No labels yet — add one below.</p>'}</div>
+      <div class="rule"></div>
+      <div class="fld">
+        <label>Add a label</label>
+        <div class="label-picker">${LABEL_ICONS.map(ic=>`<button class="label-ic-b${ic.key===labelDraft.icon?' on':''}" data-act="draft-icon" data-icon="${ic.key}" title="${ic.name}">${renderLabelIcon(ic.key,15)}</button>`).join('')}</div>
+        <input class="inp" id="labeldef-desc-input" value="${labelDraft.desc}" maxlength="40" placeholder="Label description (max 40 chars)" style="margin-top:8px">
+        <div class="label-color-picker">${LABEL_COLORS.map(c=>`<button class="label-color-b${(labelDraft.color||null)===c.value?' on':''}" data-act="draft-color" data-color="${c.value||''}" title="${c.name}" style="${c.value?`background:${c.value}`:'background:var(--ink-3)'}"></button>`).join('')}</div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn ghost" data-act="labels-close">Done</button>
+        <button class="btn primary" data-act="add-labeldef">＋ Add label</button>
+      </div>`;
+  }
+
   /* ---------- event wiring ---------- */
   function wire(){
     // toolbar
@@ -404,6 +446,7 @@ const App = (()=>{
         document.getElementById('open-modal').classList.add('open');
       }
       if(a==='export'){ renderExportModal(); document.getElementById('export-modal').classList.add('open'); }
+      if(a==='manage-labels'){ renderLabelsModal(); document.getElementById('labels-modal').classList.add('open'); }
     });
     // floating stage controls (zoom, edit-positions) — live over the canvas,
     // not inside #topbar
@@ -450,6 +493,28 @@ const App = (()=>{
     });
     document.getElementById('export-modal').addEventListener('change',e=>{
       if(e.target.dataset.f==='include-legend'){ expOpts.includeLegend=e.target.checked; renderExportModal(); }
+    });
+    // manage-labels modal
+    document.getElementById('labels-modal').addEventListener('click',e=>{
+      const b=e.target.closest('[data-act]'); if(!b) return;
+      const a=b.dataset.act;
+      if(a==='labels-close') document.getElementById('labels-modal').classList.remove('open');
+      if(a==='remove-labeldef'){ FAM.removeLabelDef(b.dataset.id); renderLabelsModal(); rerender(); Storage.autosave(); }
+      if(a==='draft-icon'){ labelDraft.icon=b.dataset.icon; renderLabelsModal(); }
+      if(a==='draft-color'){ labelDraft.color=b.dataset.color||null; renderLabelsModal(); }
+      if(a==='add-labeldef'){
+        const desc=(document.getElementById('labeldef-desc-input')?.value||'').trim().slice(0,40);
+        if(!desc) return;
+        FAM.addLabelDef({ icon:labelDraft.icon, desc, color:labelDraft.color });
+        labelDraft={ icon:LABEL_ICONS[0].key, desc:'', color:null };
+        renderLabelsModal(); Storage.autosave();
+      }
+    });
+    document.getElementById('labels-modal').addEventListener('click',e=>{
+      if(e.target===document.getElementById('labels-modal')) document.getElementById('labels-modal').classList.remove('open');
+    });
+    document.getElementById('labels-modal').addEventListener('input',e=>{
+      if(e.target.id==='labeldef-desc-input') labelDraft.desc=e.target.value;
     });
     // save modal
     document.getElementById('save-modal').addEventListener('click',e=>{
@@ -523,6 +588,13 @@ const App = (()=>{
         resetRowOrder([state.selected]);
         rerender(); openDrawer('inspect'); flash('Position reset'); Storage.autosave();
       }
+      if(a==='toggle-label'){
+        form.labelIds=form.labelIds||[];
+        const id=b.dataset.id, i=form.labelIds.indexOf(id);
+        if(i===-1) form.labelIds.push(id); else form.labelIds.splice(i,1);
+        b.classList.toggle('on', i===-1);
+      }
+      if(a==='manage-labels'){ renderLabelsModal(); document.getElementById('labels-modal').classList.add('open'); }
       if(a==='rmrel'){ }
     });
     document.getElementById('drawer').addEventListener('click',e=>{
@@ -764,6 +836,7 @@ function buildLegend(){
   const members=FAM.usedMemberTraits();
   const partner=FAM.usedPartnerTypes();
   const emo=FAM.usedEmotionalTypes();
+  const labels=FAM.usedLabels().map(l=>({...l, label:l.desc}));
   const col=(title,rows,iconFn)=>rows.length?`<div class="lg-col"><div class="lg-h">${title}</div>${
     rows.map(r=>`<div class="lg-row"><span class="lg-s">${iconFn(r)}</span>${r.label}</div>`).join('')
   }</div>`:'';
@@ -771,6 +844,7 @@ function buildLegend(){
     col('Members', members, r=>SYM.mini(r.trait,22)),
     col('Partner / family', partner, r=>SYM.relMini(r.key)),
     col('Emotional', emo, r=>SYM.relMini(r.key)),
+    col('Labels', labels, r=>renderLabelIcon(r.icon,20,r.color)),
   ].filter(Boolean);
   el.style.gridTemplateColumns=`repeat(${cols.length||1},1fr)`;
   el.innerHTML=cols.join('');
