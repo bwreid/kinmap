@@ -206,8 +206,25 @@ const SYM = (()=>{
         const X=pt.x+tan.px*a, Y=pt.y+tan.py*a; d+=(i?'L':'M')+X.toFixed(1)+' '+Y.toFixed(1)+' '; }
       return `<path class="emo" fill="none" d="${d}"/>`;
     };
-    const arrow=()=>{ const tan=qtangent(1), a=10; const lx=bx-tan.ux*a, ly=by-tan.uy*a;
-      return `<path class="emo" d="M${lx+tan.px*6} ${ly+tan.py*6} L${bx} ${by} L${lx-tan.px*6} ${ly-tan.py*6}"/>`; };
+    // zig()'s vertices swing to +-amp and only snap back to the exact
+    // endpoint on the very last vertex, so the path's true final segment
+    // approaches from that last peak's angle, not the smooth curve tangent —
+    // this mirrors that same vertex so arrow() can point the way the zigzag
+    // actually arrives instead of the way the idealized curve would.
+    const zigLastVertex=(amp)=>{
+      const n=Math.max(6,Math.round(L/16));
+      const t=(n-1)/n, pt=qpoint(t), tan=qtangent(t);
+      const a=(n-1)%2?amp:-amp;
+      return { x: pt.x+tan.px*a, y: pt.y+tan.py*a };
+    };
+    const arrow=(from)=>{
+      let ux,uy,px,py;
+      if(from){ const dx=bx-from.x, dy=by-from.y, l=Math.hypot(dx,dy)||1;
+        ux=dx/l; uy=dy/l; px=-uy; py=ux; }
+      else { const tan=qtangent(1); ({ux,uy,px,py}=tan); }
+      const a=10; const lx=bx-ux*a, ly=by-uy*a;
+      return `<path class="emo" d="M${lx+px*6} ${ly+py*6} L${bx} ${by} L${lx-px*6} ${ly-py*6}"/>`;
+    };
     switch(key){
       case 'close':       return line(-3)+line(3);
       case 'fused':       return line(-5)+line(0)+line(5);
@@ -217,7 +234,7 @@ const SYM = (()=>{
       case 'temporary':   return line(0,'2 5');
       case 'conflict':    return zig(7);
       case 'fusedHostile':return line(-6)+line(6)+zig(6);
-      case 'abuse':       return zig(7)+arrow();
+      case 'abuse':       return zig(7)+arrow(zigLastVertex(7));
       case 'neglect':     return line(0,'3 6')+arrow();
       case 'cutoff': {
         const pt1=qpoint(0.47), tan1=qtangent(0.47), pt2=qpoint(0.53), tan2=qtangent(0.53);

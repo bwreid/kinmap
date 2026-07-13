@@ -725,19 +725,30 @@ const View = (()=>{
     return sign*(blocked?clear:base);
   }
 
-  /* anchor a tie at the node's top-left or top-right corner (whichever
-     faces the other person) instead of its center, so the curve leaves
-     from up near the roofline and reads as a clean upward arc */
-  function cornerAnchor(p, other){
+  /* anchor a tie at the corner of the node's symbol that faces the other
+     person — same-generation ties always leave from a top corner (so they
+     read as a clean upward arc); cross-generation ties instead pick top vs.
+     bottom per node, whichever is vertically closest to the other person
+     (e.g. the upper node's bottom corner to the lower node's top corner).
+     Female (circle) symbols don't actually have a corner — the square's
+     corner point sits R√2 from center, outside the circle's own radius R —
+     so for circles the anchor is pulled in along that same diagonal to sit
+     right on the circle's edge instead of floating past it. */
+  function cornerAnchor(id, pos, other, sameGen){
     const R=LC.S/2;
-    const sx = other.x>=p.x ? 1 : -1;
-    return { x:p.x+sx*R, y:p.y-R };
+    const sx = other.x>=pos.x ? 1 : -1;
+    const sy = sameGen ? -1 : (other.y>=pos.y ? 1 : -1);
+    const o = FAM.byId(id)?.sex==='f' ? R/Math.SQRT2 : R;
+    return { x:pos.x+sx*o, y:pos.y+sy*o };
   }
 
   function emotional(){
     return FAM.rels.map(r=>{ const a=POS[r.a], b=POS[r.b]; if(!a||!b) return '';
-      const pa=cornerAnchor(a,b), pb=cornerAnchor(b,a);
-      const bow=relBow(pa,pb,r.a,r.b);
+      // ties within a generation bow upward to dodge intervening members;
+      // ties that cross generations (up/down) run straight instead
+      const sameGen = FAM.byId(r.a)?.gen===FAM.byId(r.b)?.gen;
+      const pa=cornerAnchor(r.a,a,b,sameGen), pb=cornerAnchor(r.b,b,a,sameGen);
+      const bow=sameGen?relBow(pa,pb,r.a,r.b):0;
       return `<g class="emo-g" data-rel="${r.a}__${r.b}">${SYM.emotional(r.type,pa.x,pa.y,pb.x,pb.y,bow)}</g>`; }).join('');
   }
 
