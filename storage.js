@@ -44,6 +44,20 @@ const Storage = (() => {
     });
   }
 
+  // saves from when custom icons lived in a shared FAM.customIcons catalog
+  // (rather than embedded directly on each labelDef) — that catalog no
+  // longer exists, so fold any matching custom icon's path straight into the
+  // labelDefs that used it before it's dropped
+  function migrateLegacyCustomIcons(d) {
+    const customIcons = d.customIcons;
+    if (!customIcons || !customIcons.length) return;
+    FAM.labelDefs.forEach(l => {
+      if (l.iconPath || LABEL_ICONS.some(i => i.key === l.icon)) return;
+      const ci = customIcons.find(i => i.key === l.icon);
+      if (ci) l.iconPath = ci.path;
+    });
+  }
+
   function hydrate(doc) {
     const d = doc.data;
     FAM._n        = d._n;
@@ -52,6 +66,7 @@ const Storage = (() => {
     FAM.rels      = d.rels.map(r => ({ ...r }));
     FAM.labelDefs = (d.labelDefs || []).map(l => ({ ...l }));
     migrateLegacyLabels();
+    migrateLegacyCustomIcons(d);
   }
 
   function autosave() {

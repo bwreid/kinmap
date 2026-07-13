@@ -66,7 +66,11 @@ const LABEL_COLORS = [
   { key:'vanilla-custard', name:'Vanilla Custard', value:'#DCDBA8' },
 ];
 
-function renderLabelIcon(key, size=16, color=null){
-  const def=LABEL_ICONS.find(i=>i.key===key); if(!def) return '';
-  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"${color?` style="color:${color}"`:''}>${def.path}</svg>`;
+// customPath lets a caller render a one-off icon a labelDef carries directly
+// (a custom Lucide icon fetched by name for that specific label) without it
+// needing to exist in LABEL_ICONS at all
+function renderLabelIcon(key, size=16, color=null, customPath=null){
+  const path=customPath || LABEL_ICONS.find(i=>i.key===key)?.path;
+  if(!path) return '';
+  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"${color?` style="color:${color}"`:''}>${path}</svg>`;
 }

@@ -25,15 +25,18 @@ const FAM = {
     { a:'marcus', b:'lena',   type:'close' },
     { a:'father', b:'pgf',    type:'cutoff' },
   ],
-  // central registry of member labels — { id, icon, desc, color } — created
-  // and deleted only from the "Manage labels" screen; people reference these
-  // by id (p.labelIds) rather than embedding their own copy
+  // central registry of member labels — { id, icon, desc, color, iconPath } —
+  // created and deleted only from the "Manage labels" screen; people
+  // reference these by id (p.labelIds) rather than embedding their own copy.
+  // iconPath is only set when `icon` isn't one of the curated LABEL_ICONS —
+  // a custom Lucide icon fetched by name is embedded directly on the label
+  // that used it (not kept in any shared, reusable catalog)
   labelDefs: [],
 
   byId(id){ return this.people.find(p=>p.id===id); },
   labelDef(id){ return this.labelDefs.find(l=>l.id===id); },
-  addLabelDef({icon,desc,color}){
-    const l={ id:this.uid('lbl'), icon, desc, color:color||null };
+  addLabelDef({icon,desc,color,iconPath}){
+    const l={ id:this.uid('lbl'), icon, desc, color:color||null, iconPath:iconPath||null };
     this.labelDefs.push(l); return l;
   },
   removeLabelDef(id){

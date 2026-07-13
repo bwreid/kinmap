@@ -768,7 +768,7 @@ const View = (()=>{
     let x = -totalW/2, out='';
     if(sub){ out += `<text class="nsub" x="${x+textW/2}" y="${y}" text-anchor="middle">${sub}</text>`; x += textW + (labels.length?textGap:0); }
     labels.forEach(l=>{
-      out += `<g class="label-icon" transform="translate(${x},${y-iconSize+1})">${renderLabelIcon(l.icon,iconSize,l.color)}</g>`;
+      out += `<g class="label-icon" transform="translate(${x},${y-iconSize+1})">${renderLabelIcon(l.icon,iconSize,l.color,l.iconPath)}</g>`;
       x += iconSize+iconGap;
     });
     return out;
@@ -857,7 +857,7 @@ const View = (()=>{
       { title:'Members', rows:FAM.usedMemberTraits().map(r=>({icon:SYM.mini(r.trait,20), h:20, label:r.label})) },
       { title:'Partner / family', rows:FAM.usedPartnerTypes().map(r=>({icon:SYM.relMini(r.key), h:18, label:r.label})) },
       { title:'Emotional', rows:FAM.usedEmotionalTypes().map(r=>({icon:SYM.relMini(r.key), h:18, label:r.label})) },
-      { title:'Labels', rows:FAM.usedLabels().map(r=>({icon:renderLabelIcon(r.icon,16,r.color), h:16, label:r.desc})) },
+      { title:'Labels', rows:FAM.usedLabels().map(r=>({icon:renderLabelIcon(r.icon,16,r.color,r.iconPath), h:16, label:r.desc})) },
     ].filter(c=>c.rows.length);
     const maxRows=cols.length?Math.max(...cols.map(c=>c.rows.length)):0;
     const width=pad*2+colW*Math.max(cols.length,1);
