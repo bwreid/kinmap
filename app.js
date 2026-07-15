@@ -11,6 +11,7 @@ const App = (() => {
     relType: null,
     addRelation: "child",
     showEmo: true,
+    showNotes: true,
     highlightLabels: new Set(),
   };
   const RANK_STEP = 1000;
@@ -30,6 +31,7 @@ const App = (() => {
     View.fit();
     wire();
     applyEmoVisibility();
+    applyNotesVisibility();
   }
   function rerender() {
     View.canvas();
@@ -45,6 +47,7 @@ const App = (() => {
     }
     state.selected = id;
     state.selectedUnion = null;
+    noteDraft = null;
     View.selection();
     if (id) openDrawer("inspect");
     if (id && state.mode === "edit")
@@ -79,6 +82,7 @@ const App = (() => {
   }
   function closeDrawer() {
     state.drawer = null;
+    noteDraft = null;
     document.getElementById("drawer").classList.remove("open");
   }
 
@@ -192,6 +196,65 @@ const App = (() => {
     return FAM.people
       .map((p) => `<option value="${p.id}">${p.name}</option>`)
       .join("");
+  }
+
+  /* ---------- member notes (inline add/edit in the inspector — unlike
+     labels, note content isn't shared/reusable across members, so there's
+     no central registry and no separate "manage" modal) ---------- */
+  const NOTE_MAX = 500;
+  let noteDraft = null; // { id: existingId|null, text, color } while the inline editor is open, else null
+  function escapeHtml(str) {
+    return String(str)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+  // a tiny markdown-lite pass for note display only (never for the editor's
+  // own textarea, which shows the raw **/_ source for editing) — always run
+  // on already-escaped text so `<`/`>` typed by the user can't reopen a tag
+  function mdInline(escaped) {
+    return escaped
+      .replace(/\*\*(\S(?:.*?\S)?)\*\*/g, "<strong>$1</strong>")
+      .replace(/(^|[^_])_(\S(?:.*?\S)?)_(?!_)/g, "$1<em>$2</em>");
+  }
+  function renderNoteText(text) {
+    return mdInline(escapeHtml(text));
+  }
+  function renderNoteEditor() {
+    const colorPicker = LABEL_COLORS.map(
+      (c) =>
+        `<button class="label-color-b${(noteDraft.color || null) === c.value ? " on" : ""}" data-act="note-draft-color" data-color="${c.value || ""}" title="${c.name}" style="${c.value ? `background:${c.value}` : "background:var(--ink-3)"}"></button>`,
+    ).join("");
+    return `<div class="note-editor">
+      <textarea id="note-draft-input" maxlength="${NOTE_MAX}" placeholder="Write a note…">${escapeHtml(noteDraft.text)}</textarea>
+      <div class="note-cnt">${noteDraft.text.length}/${NOTE_MAX}</div>
+      <div class="label-color-picker">${colorPicker}</div>
+      <div class="note-editor-foot">
+        <button class="btn ghost" data-act="cancel-note-edit">Cancel</button>
+        <button class="btn primary" data-act="save-note">Save note</button>
+      </div>
+    </div>`;
+  }
+  function renderNotesSection(p) {
+    const notes = p.notes || [];
+    const rows = notes
+      .map((n) => {
+        if (noteDraft && noteDraft.id === n.id) return renderNoteEditor();
+        return `<div class="note-row">
+        <span class="note-sw" style="${n.color ? `background:${n.color}` : ""}"></span>
+        <span class="note-text">${renderNoteText(n.text)}</span>
+        <button class="note-edit" data-act="edit-note" data-id="${n.id}" title="Edit note">${PENCIL_ICON}</button>
+        <button class="rx" data-act="remove-note" data-id="${n.id}" title="Delete note">✕</button>
+      </div>`;
+      })
+      .join("");
+    const adder =
+      noteDraft && noteDraft.id === null
+        ? renderNoteEditor()
+        : `<button class="btn block" data-act="add-note">+ Add note</button>`;
+    return `<div class="note-list">${rows}</div>${adder}`;
   }
 
   /* ---------- label toggle chips (shared: edit form + inspector) ---------- */
@@ -342,6 +405,9 @@ const App = (() => {
       <div class="sec-h">Emotional ties <span class="cnt">${rels.length}</span></div>
       <div class="rel-list">${relRows}</div>
       <button class="btn block" data-act="relate-from">＋ Add relationship</button>
+      <div class="rule"></div>
+      <div class="sec-h">Notes <span class="cnt">${(p.notes || []).length}</span></div>
+      ${renderNotesSection(p)}
       <div class="rule"></div>
       <div class="sec-h">Labels</div>
       ${renderLabelChips(p.labelIds || [], "toggle-label-live")}
@@ -929,6 +995,10 @@ const App = (() => {
         renderHighlightPop();
         document.getElementById("hlpop").classList.toggle("open");
       }
+      if (a === "toggle-notes") {
+        state.showNotes = !state.showNotes;
+        applyNotesVisibility();
+      }
       if (a === "zin") {
         View.zoomBy(1.2);
         updZoom();
@@ -1263,6 +1333,58 @@ const App = (() => {
         renderLabelsModal();
         document.getElementById("labels-modal").classList.add("open");
       }
+      if (a === "add-note") {
+        noteDraft = { id: null, text: "", color: null };
+        openDrawer("inspect");
+      }
+      if (a === "edit-note") {
+        const p = FAM.byId(state.selected);
+        const n = p && (p.notes || []).find((x) => x.id === b.dataset.id);
+        if (!n) return;
+        noteDraft = { id: n.id, text: n.text, color: n.color || null };
+        openDrawer("inspect");
+      }
+      if (a === "note-draft-color") {
+        if (!noteDraft) return;
+        noteDraft.color = b.dataset.color || null;
+        openDrawer("inspect");
+      }
+      if (a === "cancel-note-edit") {
+        noteDraft = null;
+        openDrawer("inspect");
+      }
+      if (a === "save-note") {
+        const p = FAM.byId(state.selected);
+        if (!p || !noteDraft) return;
+        const text = noteDraft.text.trim();
+        if (!text) {
+          flash("Note can't be empty");
+          return;
+        }
+        p.notes = p.notes || [];
+        if (noteDraft.id) {
+          const n = p.notes.find((x) => x.id === noteDraft.id);
+          if (n) {
+            n.text = text;
+            n.color = noteDraft.color;
+          }
+        } else {
+          p.notes.push({ id: FAM.uid("note"), text, color: noteDraft.color });
+        }
+        noteDraft = null;
+        rerender();
+        openDrawer("inspect");
+        Storage.autosave();
+      }
+      if (a === "remove-note") {
+        const p = FAM.byId(state.selected);
+        if (!p) return;
+        p.notes = (p.notes || []).filter((n) => n.id !== b.dataset.id);
+        if (noteDraft && noteDraft.id === b.dataset.id) noteDraft = null;
+        rerender();
+        openDrawer("inspect");
+        Storage.autosave();
+      }
       if (a === "rmrel") {
       }
     });
@@ -1389,6 +1511,56 @@ const App = (() => {
         const show = !idxCb.checked && FAM.people.length > 0;
         famSec.style.display = show ? "" : "none";
       });
+    const noteTa = d.querySelector("#note-draft-input");
+    if (noteTa)
+      noteTa.addEventListener("input", () => {
+        if (!noteDraft) return;
+        noteDraft.text = noteTa.value;
+        const cnt = d.querySelector(".note-cnt");
+        if (cnt) cnt.textContent = `${noteTa.value.length}/${NOTE_MAX}`;
+      });
+  }
+
+  function applyNotesVisibility() {
+    document
+      .getElementById("canvas")
+      .classList.toggle("hide-notes", !state.showNotes);
+    const btn = document.getElementById("toggle-notes-btn");
+    if (btn) {
+      btn.classList.toggle("on", state.showNotes);
+      btn.title = state.showNotes ? "Notes shown — click to hide" : "Notes hidden — click to show";
+      const lbl = btn.querySelector(".lbl");
+      if (lbl) lbl.textContent = state.showNotes ? "Notes shown" : "Notes hidden";
+    }
+    if (!state.showNotes) hideNoteTip();
+  }
+
+  /* ---------- note-badge hover popup ----------
+     Positioned in screen space (via getBoundingClientRect) rather than SVG
+     space, since the canvas pans/zooms — an HTML overlay div can't be
+     placed using the SVG's own coordinate system. */
+  function showNoteTip(badgeEl, p) {
+    const tip = document.getElementById("note-tip");
+    tip.innerHTML = (p.notes || [])
+      .map(
+        (n) =>
+          `<div class="note-tip-row"><span class="note-tip-sw" style="${n.color ? `background:${n.color}` : ""}"></span><span class="note-tip-text">${renderNoteText(n.text)}</span></div>`,
+      )
+      .join("");
+    const stageRect = document
+      .getElementById("stage-canvas")
+      .getBoundingClientRect();
+    const badgeRect = badgeEl.getBoundingClientRect();
+    tip.classList.add("show");
+    const tipRect = tip.getBoundingClientRect();
+    let left = badgeRect.left - stageRect.left + badgeRect.width / 2 - tipRect.width / 2;
+    left = Math.max(8, Math.min(left, stageRect.width - tipRect.width - 8));
+    const top = badgeRect.top - stageRect.top - tipRect.height - 10;
+    tip.style.left = `${left}px`;
+    tip.style.top = `${Math.max(8, top)}px`;
+  }
+  function hideNoteTip() {
+    document.getElementById("note-tip").classList.remove("show");
   }
 
   function applyEmoVisibility() {
@@ -1655,6 +1827,18 @@ const App = (() => {
       },
       { passive: false },
     );
+    // note-badge hover popup — pointerover/pointerout bubble (unlike
+    // mouseenter/mouseleave), so a single delegated pair works here
+    svg.addEventListener("pointerover", (e) => {
+      if (!state.showNotes) return;
+      const badge = e.target.closest(".note-badge");
+      if (!badge) return;
+      const p = FAM.byId(badge.dataset.noteBadge);
+      if (p) showNoteTip(badge, p);
+    });
+    svg.addEventListener("pointerout", (e) => {
+      if (e.target.closest(".note-badge")) hideNoteTip();
+    });
   }
 
   /* toast */

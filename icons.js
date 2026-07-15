@@ -66,6 +66,11 @@ const LABEL_COLORS = [
   { key:'vanilla-custard', name:'Vanilla Custard', value:'#DCDBA8' },
 ];
 
+// fixed, non-user-selectable glyph for the member-notes canvas badge/toolbar
+// toggle (Lucide "sticky-note") — not part of LABEL_ICONS since it's never
+// offered in the label icon picker
+const NOTE_BADGE_ICON = '<path d="M21 9a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 15 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2z"/><path d="M15 3v5a1 1 0 0 0 1 1h5"/>';
+
 // customPath lets a caller render a one-off icon a labelDef carries directly
 // (a custom Lucide icon fetched by name for that specific label) without it
 // needing to exist in LABEL_ICONS at all
@@ -73,4 +78,8 @@ function renderLabelIcon(key, size=16, color=null, customPath=null){
   const path=customPath || LABEL_ICONS.find(i=>i.key===key)?.path;
   if(!path) return '';
   return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"${color?` style="color:${color}"`:''}>${path}</svg>`;
+}
+
+function renderNoteBadgeIcon(size=16){
+  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${NOTE_BADGE_ICON}</svg>`;
 }

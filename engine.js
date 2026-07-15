@@ -774,6 +774,31 @@ const View = (()=>{
     return out;
   }
 
+  // the member's name, plus a small note-badge icon appended right after it
+  // (centered as one unit, mirroring renderSubLine's text+icons technique)
+  // when they have at least one note — the badge is neutral-colored (not
+  // tinted to any one note's color, since a member can carry several
+  // differently-colored notes) and is purely an existence indicator; actual
+  // note content only shows via the hover tooltip wired in app.js.
+  function renderNameLine(p, y){
+    const hasNotes = p.notes && p.notes.length;
+    if(!hasNotes) return `<text class="nlbl" x="0" y="${y}" text-anchor="middle">${p.name}</text>`;
+    const iconSize=13, gap=5, charW=7.6;
+    const textW = p.name.length*charW;
+    const totalW = textW + gap + iconSize;
+    let x = -totalW/2;
+    let out = `<text class="nlbl" x="${x+textW/2}" y="${y}" text-anchor="middle">${p.name}</text>`;
+    x += textW + gap;
+    // the icon's own paths are unfilled/stroke-only, so a plain hover over
+    // its hollow middle wouldn't register — a transparent hit-rect behind it
+    // gives the whole badge a solid hover/click target
+    out += `<g class="note-badge" data-note-badge="${p.id}" transform="translate(${x},${y-iconSize+1})">
+      <rect class="note-badge-hit" x="-2" y="-2" width="${iconSize+4}" height="${iconSize+4}" fill="transparent"/>
+      ${renderNoteBadgeIcon(iconSize)}
+    </g>`;
+    return out;
+  }
+
   function nodes(){
     return FAM.people.map(p=>{ const pt=POS[p.id]; if(!pt) return '';
       const sub = p.deceased ? `${p.dInfo||'deceased'}${p.age?` · ${p.age}`:''}` : (p.age!=null?`${p.age}`:'');
@@ -781,7 +806,7 @@ const View = (()=>{
       return `<g class="node${p.index?' is-index':''}${p.deceased?' is-dec':''}" data-id="${p.id}" transform="translate(${pt.x},${pt.y})">
         <rect class="halo" x="${-LC.S/2-8}" y="${-LC.S/2-8}" width="${LC.S+16}" height="${LC.S+16}" rx="12"/>
         <g class="sym">${SYM.shape(p)}</g>
-        <text class="nlbl" x="0" y="${LC.S/2+20}" text-anchor="middle">${p.name}</text>
+        ${renderNameLine(p, LC.S/2+20)}
         ${renderSubLine(sub, (p.labelIds||[]).map(id=>FAM.labelDef(id)).filter(Boolean), LC.S/2+(p.index?54:36))}
         ${badge}
       </g>`; }).join('');

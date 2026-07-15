@@ -381,6 +381,12 @@ button {
 .label-icon {
   color: var(--ink-3);
 }
+.note-badge {
+  color: var(--ink-3);
+}
+#canvas.hide-notes .note-badge {
+  display: none;
+}
 .nlbl-ip {
   font-family: "Archivo";
   font-size: 10.5px;
@@ -565,6 +571,47 @@ body.editing .bus-handle:active {
   display: block;
   margin-top: 10px;
   font-size: 12px;
+}
+
+/* note-badge hover popup */
+.note-tip {
+  position: absolute;
+  width: 240px;
+  background: var(--ink);
+  color: var(--panel);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  padding: 10px 12px;
+  display: none;
+  z-index: 30;
+  pointer-events: none;
+}
+.note-tip.show {
+  display: block;
+}
+.note-tip-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.note-tip-row + .note-tip-row {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.15);
+}
+.note-tip-sw {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  margin-top: 3px;
+  background: var(--ink-3);
+}
+.note-tip-text {
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 /* legend popover */
@@ -972,6 +1019,94 @@ select.inp {
 .union-row .rx:hover {
   background: #f0e2db;
   color: var(--danger);
+}
+
+/* member notes (inline add/edit in the inspector, no separate modal —
+   unlike labels, note content isn't shared/reusable across members) */
+.note-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 10px;
+}
+.note-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 8px;
+  border-radius: 7px;
+  background: var(--panel-2);
+}
+.note-row .note-sw {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  margin-top: 4px;
+  background: var(--ink-3);
+}
+.note-row .note-text {
+  font-size: 13px;
+  flex: 1;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 4.5em;
+  overflow: hidden;
+}
+.note-row .note-edit,
+.note-row .rx {
+  border: none;
+  background: none;
+  color: var(--ink-3);
+  font-size: 12px;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.note-row .note-edit:hover {
+  background: var(--panel);
+  color: var(--ink);
+}
+.note-row .rx:hover {
+  background: #f0e2db;
+  color: var(--danger);
+}
+.note-editor {
+  padding: 8px;
+  border-radius: 7px;
+  background: var(--panel-2);
+  margin-bottom: 10px;
+}
+.note-editor textarea {
+  width: 100%;
+  font: inherit;
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  padding: 8px;
+  resize: vertical;
+  min-height: 56px;
+}
+.note-editor .note-cnt {
+  font-size: 11px;
+  color: var(--ink-3);
+  text-align: right;
+  margin-top: 3px;
+}
+.note-editor .label-color-picker {
+  margin-top: 8px;
+}
+.note-editor-foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
 }
 
 /* member label picker (icon/color pickers reused by the manage-labels modal;
