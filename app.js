@@ -392,9 +392,9 @@ const App = (() => {
       ? rels
           .map((r) => {
             const oId = r.a === p.id ? r.b : r.a;
-            const o = FAM.byId(oId);
+            const o = FAM.entityById(oId);
             const t = REL_BY_KEY[r.type];
-            return `<div class="rel-row"><span class="rl">${SYM.relMini(r.type)}</span><span class="rn">${o.name}</span><span class="rt">${t ? t.label : r.type}</span>
+            return `<div class="rel-row"><span class="rl">${SYM.relMini(r.type)}</span><span class="rn">${o ? o.name : "?"}</span><span class="rt">${t ? t.label : r.type}</span>
         <button class="rx" data-rmrel="${r.a}__${r.b}" title="Remove">✕</button></div>`;
           })
           .join("")
