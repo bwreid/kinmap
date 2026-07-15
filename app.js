@@ -32,6 +32,7 @@ const App = (() => {
     wire();
     applyEmoVisibility();
     applyNotesVisibility();
+    applyHighlightVisibility();
   }
   function rerender() {
     View.canvas();
@@ -890,7 +891,7 @@ const App = (() => {
     document.getElementById("toggle-edit-btn")?.classList.remove("on");
     document.getElementById("legend").classList.remove("open");
     document.getElementById("hlpop").classList.remove("open");
-    document.getElementById("highlight-btn")?.classList.remove("on");
+    applyHighlightVisibility();
     document.getElementById("search").value = "";
     rerender();
     View.resetView();
@@ -1369,16 +1370,32 @@ const App = (() => {
         else state.highlightLabels.add(id);
         renderHighlightPop();
         View.highlight();
-        document
-          .getElementById("highlight-btn")
-          ?.classList.toggle("on", state.highlightLabels.size > 0);
+        applyHighlightVisibility();
       }
       if (a === "clear-highlight") {
         state.highlightLabels.clear();
         renderHighlightPop();
         View.highlight();
-        document.getElementById("highlight-btn")?.classList.remove("on");
+        applyHighlightVisibility();
       }
+    });
+    // close the highlight popover on an outside click — excluding its own
+    // toggle button, whose click already opens/closes it via the
+    // stage-canvas handler above and would otherwise immediately re-close it.
+    // Uses composedPath() rather than e.target.closest(): clicking a label
+    // chip re-renders #hlpop-body (see the #hlpop click handler above,
+    // which — being a closer ancestor — runs first during bubbling), so by
+    // the time this listener sees the event, e.target has already been
+    // detached from the DOM and closest() can no longer find its way back
+    // up to #hlpop. composedPath() captures the original propagation path
+    // before that mutation happened, so it stays accurate.
+    document.addEventListener("click", (e) => {
+      const hlpop = document.getElementById("hlpop");
+      if (!hlpop.classList.contains("open")) return;
+      const path = e.composedPath();
+      const toggleBtn = document.querySelector('[data-act="toggle-highlight"]');
+      if (path.includes(hlpop) || (toggleBtn && path.includes(toggleBtn))) return;
+      hlpop.classList.remove("open");
     });
     // save modal
     document.getElementById("save-modal").addEventListener("click", (e) => {
@@ -1427,7 +1444,7 @@ const App = (() => {
         document.getElementById("toggle-edit-btn")?.classList.remove("on");
         document.getElementById("legend").classList.remove("open");
         document.getElementById("hlpop").classList.remove("open");
-        document.getElementById("highlight-btn")?.classList.remove("on");
+        applyHighlightVisibility();
         document.getElementById("search").value = "";
         rerender();
         View.fit();
@@ -1798,6 +1815,19 @@ const App = (() => {
     document
       .getElementById("canvas")
       .classList.toggle("hide-emo", !state.showEmo);
+    const btn = document.getElementById("toggle-emo-btn");
+    if (btn) {
+      btn.classList.toggle("on", state.showEmo);
+      btn.title = state.showEmo ? "Emotional ties shown — click to hide" : "Emotional ties hidden — click to show";
+    }
+  }
+
+  // same "on" toggle-button styling as notes/emotional ties, active whenever
+  // at least one label is currently being highlighted
+  function applyHighlightVisibility() {
+    document
+      .getElementById("highlight-btn")
+      ?.classList.toggle("on", state.highlightLabels.size > 0);
   }
 
   function deselectSilent() {
