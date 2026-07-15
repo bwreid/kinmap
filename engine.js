@@ -391,7 +391,19 @@ const Layout = (()=>{
        stable across future recomputes (gens is processed in ascending order,
        so a parent generation's own positions — including their own manual
        nudges — are always already finalized by the time a child generation
-       reads them here). */
+       reads them here).
+
+       The shift below recenters the reordered sequence to roughly where the
+       row currently sits — but a fully unconnected person (no partner/child
+       entry in ANY union, e.g. a friend added with no family tie) gets
+       seeded far off to one side by compute()'s isolated-person fallback,
+       and including that arbitrary position in the "where it currently
+       sits" bounds skews the shift, shoving every actually-related person
+       in the row along with them. Match centers using only the row's
+       union-anchored members (same isolation test compute() itself uses),
+       falling back to everyone if the row has no anchored member at all —
+       so an unconnected member's own stray position never pollutes the
+       reference point used to keep everyone else roughly in place. */
     gens.forEach(g=>{
       const natural=FAM.people.filter(p=>p.gen===g && POS[p.id]).map(p=>p.id).sort((a,b)=>POS[a].x-POS[b].x);
       if(!natural.some(id=>{ const pp=FAM.byId(id); return pp.rowOrder!=null || pp.rowOffset!=null; })) return;
@@ -399,8 +411,12 @@ const Layout = (()=>{
       const married=(a,b)=>FAM.unions.some(u=>u.partners.length===2&&u.partners.includes(a)&&u.partners.includes(b));
       const offs=[0];
       for(let i=1;i<seq.length;i++) offs.push(offs[i-1] + (married(seq[i-1],seq[i]) ? LC.COUPLE : LC.NODEW+LC.SIBGAP));
-      const naturalXs=natural.map(id=>POS[id].x);
-      const shift = (Math.min(...naturalXs)+Math.max(...naturalXs))/2 - (offs[0]+offs[offs.length-1])/2;
+      const anchored=id=>FAM.unions.some(u=>u.partners.includes(id)||u.children.includes(id));
+      const basis=natural.filter(anchored);
+      const basisIds=basis.length?basis:natural;
+      const naturalXs=basisIds.map(id=>POS[id].x);
+      const basisOffs=basisIds.map(id=>offs[seq.indexOf(id)]);
+      const shift = (Math.min(...naturalXs)+Math.max(...naturalXs))/2 - (Math.min(...basisOffs)+Math.max(...basisOffs))/2;
       seq.forEach((id,i)=>{
         const p=FAM.byId(id);
         let x = offs[i]+shift+(p.rowOffset||0);
