@@ -76,7 +76,9 @@ const App = (() => {
     state.drawer = mode;
     const d = document.getElementById("drawer");
     d.innerHTML =
-      mode === "add" ? addForm() : mode === "edit" ? editForm() : inspectView();
+      mode === "add" ? addForm() : mode === "edit" ? editForm() :
+      mode === "add-community" ? addCommunityForm() :
+      mode === "edit-community" ? editCommunityForm() : inspectView();
     d.classList.add("open");
     bindDrawer();
   }
@@ -333,7 +335,41 @@ const App = (() => {
   }
 
   /* ---------- inspector ---------- */
+  function inspectCommunityView(c) {
+    const rels = FAM.relsOf(c.id);
+    const relRows = rels.length
+      ? rels
+          .map((r) => {
+            const oId = r.a === c.id ? r.b : r.a;
+            const o = FAM.entityById(oId);
+            const t = REL_BY_KEY[r.type];
+            return `<div class="rel-row"><span class="rl">${SYM.relMini(r.type)}</span><span class="rn">${o ? o.name : "?"}</span><span class="rt">${t ? t.label : r.type}</span>
+        <button class="rx" data-rmrel="${r.a}__${r.b}" title="Remove">✕</button></div>`;
+          })
+          .join("")
+      : `<p class="hint">No relationships mapped yet.</p>`;
+    return `
+    <div class="drawer-h"><h3>${c.name}</h3><button class="x" data-act="close">✕</button></div>
+    <div class="drawer-body">
+      <div class="insp-id">
+        <div class="insp-sym">${SYM.communityMini(c, 46)}</div>
+        <div class="insp-meta">Community</div>
+      </div>
+      ${c.description ? `<div class="kv"><span>Description</span><b>${renderNoteText(c.description)}</b></div>` : ""}
+      <div class="rule"></div>
+      <div class="sec-h">Emotional ties <span class="cnt">${rels.length}</span></div>
+      <div class="rel-list">${relRows}</div>
+      <button class="btn block" data-act="relate-from">＋ Add relationship</button>
+    </div>
+    <div class="drawer-foot">
+      <button class="btn ghost danger" data-act="delete-community">Delete</button>
+      <button class="btn ghost" data-act="edit-community">✎ Edit</button>
+      <button class="btn primary" data-act="close">Done</button>
+    </div>`;
+  }
   function inspectView() {
+    const c = FAM.communityById(state.selected);
+    if (c) return inspectCommunityView(c);
     const p = FAM.byId(state.selected);
     if (!p) return "";
     const pu = FAM.parentsUnion(p.id);
@@ -578,6 +614,125 @@ const App = (() => {
     Storage.autosave();
   }
 
+  /* ---------- communities (free-floating groups) ----------
+     Unlike people, a community has no row/generation of its own — its only
+     position is the absolute c.pos the user drags directly (App's
+     startCommunityDrag/commitCommunityDrag, below). communityDraft holds
+     the add/edit form's live name/description/color while that drawer is
+     open (mirrors noteDraft/labelDraft — reset only where a fresh add/edit
+     flow actually begins, never inside the render functions themselves, so
+     a color-swatch click can re-render the form without losing what the
+     user already typed). */
+  let communityDraft = {};
+  function communityColorPicker(selected) {
+    return LABEL_COLORS.filter((c) => c.value)
+      .map(
+        (c) =>
+          `<button class="label-color-b${selected === c.value ? " on" : ""}" data-act="community-draft-color" data-color="${c.value}" title="${c.name}" style="background:${c.value}"></button>`,
+      )
+      .join("");
+  }
+  function communitySizePicker(selected) {
+    return [
+      { v: "small", l: "Small" },
+      { v: "medium", l: "Medium" },
+      { v: "large", l: "Large" },
+    ]
+      .map(
+        (o) =>
+          `<button class="seg-b${o.v === selected ? " on" : ""}" data-grp="size" data-v="${o.v}">${o.l}</button>`,
+      )
+      .join("");
+  }
+  function addCommunityForm() {
+    return `
+    <div class="drawer-h"><h3>Add community</h3><button class="x" data-act="close">✕</button></div>
+    <div class="drawer-body">
+      <div class="fld"><label>Name</label><input class="inp" data-f="name" value="${escapeHtml(communityDraft.name)}" placeholder="e.g. Church group" autocomplete="off"></div>
+      <div class="fld"><label>Size</label><div class="seg" data-seg="size">${communitySizePicker(communityDraft.size)}</div></div>
+      <div class="fld"><label>Description</label><textarea class="inp" data-f="description" maxlength="${NOTE_MAX}" placeholder="Shown on hover…">${escapeHtml(communityDraft.description)}</textarea></div>
+      <div class="fld"><label>Color</label><div class="label-color-picker">${communityColorPicker(communityDraft.color)}</div></div>
+    </div>
+    <div class="drawer-foot">
+      <button class="btn ghost" data-act="close">Cancel</button>
+      <button class="btn primary" data-act="add-community">＋ Add community</button>
+    </div>`;
+  }
+  // default spawn point: centered above the current tree, clear of members —
+  // the user drags it into its final spot afterward (Edit Positions)
+  function spawnCommunityPos() {
+    if (!FAM.people.length) return { x: LC.CENTER, y: LC.TOPY - 160 };
+    const b = Layout.compute();
+    return { x: (b.minX + b.maxX) / 2, y: b.minY - 160 };
+  }
+  function commitAddCommunity() {
+    const d = document.getElementById("drawer");
+    const name =
+      (d.querySelector("[data-f=name]").value || "").trim() ||
+      "New community";
+    const description = (
+      d.querySelector("[data-f=description]").value || ""
+    ).trim();
+    const nc = {
+      id: FAM.uid("com"),
+      name,
+      description,
+      color: communityDraft.color,
+      size: communityDraft.size,
+      pos: spawnCommunityPos(),
+    };
+    FAM.communities.push(nc);
+    rerender();
+    state.selected = nc.id;
+    View.selection();
+    openDrawer("inspect");
+    flash(name + " added");
+    Storage.autosave();
+  }
+  function editCommunityForm() {
+    const c = FAM.communityById(state.selected);
+    if (!c) return "";
+    return `
+    <div class="drawer-h"><h3>Edit ${c.name}</h3><button class="x" data-act="close">✕</button></div>
+    <div class="drawer-body">
+      <div class="fld"><label>Name</label><input class="inp" data-f="name" value="${escapeHtml(communityDraft.name)}" autocomplete="off"></div>
+      <div class="fld"><label>Size</label><div class="seg" data-seg="size">${communitySizePicker(communityDraft.size)}</div></div>
+      <div class="fld"><label>Shape</label><button class="btn ghost" data-act="regen-community-shape">↻ Regenerate shape</button></div>
+      <div class="fld"><label>Description</label><textarea class="inp" data-f="description" maxlength="${NOTE_MAX}">${escapeHtml(communityDraft.description)}</textarea></div>
+      <div class="fld"><label>Color</label><div class="label-color-picker">${communityColorPicker(communityDraft.color)}</div></div>
+    </div>
+    <div class="drawer-foot">
+      <button class="btn ghost" data-act="close">Cancel</button>
+      <button class="btn primary" data-act="save-edit-community">Save changes</button>
+    </div>`;
+  }
+  function commitEditCommunity() {
+    const d = document.getElementById("drawer");
+    const c = FAM.communityById(state.selected);
+    if (!c) return;
+    const name =
+      (d.querySelector("[data-f=name]").value || "").trim() || c.name;
+    const description = (
+      d.querySelector("[data-f=description]").value || ""
+    ).trim();
+    c.name = name;
+    c.description = description;
+    c.color = communityDraft.color;
+    c.size = communityDraft.size;
+    rerender();
+    openDrawer("inspect");
+    flash(c.name + " updated");
+    Storage.autosave();
+  }
+  function deleteCommunity(id) {
+    FAM.communities = FAM.communities.filter((c) => c.id !== id);
+    FAM.rels = FAM.rels.filter((r) => r.a !== id && r.b !== id);
+    state.selected = null;
+    rerender();
+    closeDrawer();
+    Storage.autosave();
+  }
+
   /* ---------- relationship builder ---------- */
   function enterRelate(seed) {
     if (state.mode === "edit") exitEdit();
@@ -631,6 +786,13 @@ const App = (() => {
       if (state.relPair.length >= 2) state.relPair.shift();
       state.relPair.push(id);
     }
+    // a partner union (marriage/divorce/...) is meaningless for a community —
+    // drop a stale partner-type pick once one lands in the pair
+    if (
+      state.relPair.some((pid) => FAM.communityById(pid)) &&
+      REL_TYPES.partner.some((r) => r.key === state.relType)
+    )
+      state.relType = null;
     renderRelbar();
     View.selection();
   }
@@ -670,10 +832,13 @@ const App = (() => {
   function renderRelbar() {
     const bar = document.getElementById("relbar");
     const [a, b] = state.relPair;
-    const chip = (id, n) =>
-      id
-        ? `<span class="pchip">${SYM.mini(FAM.byId(id), 18)}${FAM.byId(id).name.split(" ")[0]}</span>`
-        : `<span class="pchip empty">${n}</span>`;
+    const chip = (id, n) => {
+      if (!id) return `<span class="pchip empty">${n}</span>`;
+      const community = FAM.communityById(id);
+      const icon = community ? SYM.communityMini(community, 18) : SYM.mini(FAM.byId(id), 18);
+      return `<span class="pchip">${icon}${FAM.entityById(id).name.split(" ")[0]}</span>`;
+    };
+    const anyCommunity = [a, b].some((id) => id && FAM.communityById(id));
     const grp = (arr) =>
       arr
         .map(
@@ -689,7 +854,7 @@ const App = (() => {
         <span class="st ${b ? "done" : a ? "now" : ""}">2</span>${chip(b, "Select second person")}
       </div>
       <div class="rb-pick">
-        <div class="rb-grp"><div class="rb-gl">Partner / family</div><div class="rb-chips">${grp(REL_TYPES.partner)}</div></div>
+        ${anyCommunity ? "" : `<div class="rb-grp"><div class="rb-gl">Partner / family</div><div class="rb-chips">${grp(REL_TYPES.partner)}</div></div>`}
         <div class="rb-grp"><div class="rb-gl">Emotional quality</div><div class="rb-chips">${grp(REL_TYPES.emotional)}</div></div>
       </div>
       <div class="rb-foot">
@@ -710,6 +875,7 @@ const App = (() => {
     FAM.people = [];
     FAM.unions = [];
     FAM.rels = [];
+    FAM.communities = [];
     FAM._n = 100;
     state.selected = null;
     state.selectedUnion = null;
@@ -947,6 +1113,11 @@ const App = (() => {
       }
       if (a === "relate") {
         enterRelate(state.selected);
+      }
+      if (a === "add-community") {
+        deselectSilent();
+        communityDraft = { name: "", description: "", color: LABEL_COLORS.find((c) => c.value)?.value, size: "medium" };
+        openDrawer("add-community");
       }
       if (a === "new") {
         newGenogram();
@@ -1299,6 +1470,31 @@ const App = (() => {
       if (a === "save-edit") commitEdit();
       if (a === "delete") deletePerson(state.selected);
       if (a === "relate-from") enterRelate(state.selected);
+      if (a === "add-community") commitAddCommunity();
+      if (a === "edit-community") {
+        const c = FAM.communityById(state.selected);
+        if (c) {
+          communityDraft = { name: c.name, description: c.description || "", color: c.color, size: c.size || "medium" };
+          openDrawer("edit-community");
+        }
+      }
+      if (a === "save-edit-community") commitEditCommunity();
+      if (a === "delete-community") deleteCommunity(state.selected);
+      if (a === "community-draft-color") {
+        communityDraft.color = b.dataset.color;
+        openDrawer(state.drawer);
+      }
+      if (a === "regen-community-shape") {
+        const c = FAM.communityById(state.selected);
+        if (c) {
+          // an immediate, standalone action (not part of the name/color
+          // draft's save/cancel lifecycle) — takes effect and autosaves
+          // right away so the canvas shows the new shape straightaway
+          c.shapeSeed = Math.floor(Math.random() * 0xffffffff);
+          rerender();
+          Storage.autosave();
+        }
+      }
       if (a === "reset-pos") {
         // manual position is purely personal now (rowOrder lives on just
         // this one person), so resetting only clears their own override —
@@ -1480,6 +1676,7 @@ const App = (() => {
         );
         if (grp === "sex") form.sex = v;
         if (grp === "conn") form.conn = v;
+        if (grp === "size") communityDraft.size = v;
         if (grp === "status") {
           form.deceased = v === "dec";
           const dinfoFld = d.querySelector("[data-dinfo-fld]");
@@ -1519,6 +1716,20 @@ const App = (() => {
         const cnt = d.querySelector(".note-cnt");
         if (cnt) cnt.textContent = `${noteTa.value.length}/${NOTE_MAX}`;
       });
+    // live-sync into communityDraft so a color-swatch click (which re-renders
+    // the form via openDrawer) doesn't lose whatever the user already typed
+    if (state.drawer === "add-community" || state.drawer === "edit-community") {
+      const nameInp = d.querySelector("[data-f=name]");
+      if (nameInp)
+        nameInp.addEventListener("input", () => {
+          communityDraft.name = nameInp.value;
+        });
+      const descInp = d.querySelector("[data-f=description]");
+      if (descInp)
+        descInp.addEventListener("input", () => {
+          communityDraft.description = descInp.value;
+        });
+    }
   }
 
   function applyNotesVisibility() {
@@ -1561,6 +1772,26 @@ const App = (() => {
   }
   function hideNoteTip() {
     document.getElementById("note-tip").classList.remove("show");
+  }
+
+  /* ---------- community hover popup (same mechanism as notes, above) ---------- */
+  function showCommunityTip(el, c) {
+    const tip = document.getElementById("community-tip");
+    tip.innerHTML = `<div class="note-tip-h">${escapeHtml(c.name)}</div><div class="note-tip-row"><span class="note-tip-text">${renderNoteText(c.description)}</span></div>`;
+    const stageRect = document
+      .getElementById("stage-canvas")
+      .getBoundingClientRect();
+    const elRect = el.getBoundingClientRect();
+    tip.classList.add("show");
+    const tipRect = tip.getBoundingClientRect();
+    let left = elRect.left - stageRect.left + elRect.width / 2 - tipRect.width / 2;
+    left = Math.max(8, Math.min(left, stageRect.width - tipRect.width - 8));
+    const top = elRect.top - stageRect.top - tipRect.height - 10;
+    tip.style.left = `${left}px`;
+    tip.style.top = `${Math.max(8, top)}px`;
+  }
+  function hideCommunityTip() {
+    document.getElementById("community-tip").classList.remove("show");
   }
 
   function applyEmoVisibility() {
@@ -1727,6 +1958,40 @@ const App = (() => {
     Storage.autosave();
   }
 
+  /* ---- a community blob: free 1:1 pixel-follow drag on BOTH axes, no
+     row/generation/order concept at all (unlike a person's drag) — it just
+     writes the pointer's world position straight to the community's own
+     absolute pos, entirely independent of Layout.compute()/relax() ---- */
+  function startCommunityDrag(node, e) {
+    const id = node.dataset.id,
+      c = FAM.communityById(id);
+    if (!c) return null;
+    return {
+      kind: "community",
+      id,
+      startX: e.clientX,
+      startY: e.clientY,
+      moved: false,
+      lastX: c.pos.x,
+      lastY: c.pos.y,
+    };
+  }
+  function updateCommunityDrag(drag, e) {
+    const w = View.toWorld(e.clientX, e.clientY);
+    drag.lastX = w.x;
+    drag.lastY = w.y;
+    const el = document.querySelector(`.community-node[data-id="${drag.id}"]`);
+    if (el) el.setAttribute("transform", `translate(${w.x},${w.y})`);
+  }
+  function commitCommunityDrag(drag) {
+    const c = FAM.communityById(drag.id);
+    if (!c) return;
+    c.pos = { x: drag.lastX, y: drag.lastY };
+    rerender();
+    flash("Position updated");
+    Storage.autosave();
+  }
+
   function canvasEvents() {
     const svg = document.getElementById("canvas");
     let down = null,
@@ -1742,7 +2007,10 @@ const App = (() => {
         if (!drag) {
           const node = e.target.closest(".node");
           if (node) {
-            drag = startDrag(node, e);
+            drag =
+              node.dataset.kind === "community"
+                ? startCommunityDrag(node, e)
+                : startDrag(node, e);
             if (drag) svg.setPointerCapture(e.pointerId);
           }
         }
@@ -1768,6 +2036,7 @@ const App = (() => {
           return;
         drag.moved = true;
         if (drag.kind === "bus") updateBusDrag(drag, e);
+        else if (drag.kind === "community") updateCommunityDrag(drag, e);
         else updateDrag(drag, e);
         return;
       }
@@ -1792,6 +2061,9 @@ const App = (() => {
         if (drag.kind === "bus") {
           if (drag.moved) commitBusDrag(drag);
           else selectUnion(drag.uid);
+        } else if (drag.kind === "community") {
+          if (drag.moved) commitCommunityDrag(drag);
+          else select(drag.id);
         } else {
           if (drag.moved) commitDrag(drag);
           else select(drag.id);
@@ -1838,6 +2110,17 @@ const App = (() => {
     });
     svg.addEventListener("pointerout", (e) => {
       if (e.target.closest(".note-badge")) hideNoteTip();
+    });
+    // community-blob hover popup — same delegated pointerover/pointerout
+    // mechanism as note badges, just triggered by the whole blob
+    svg.addEventListener("pointerover", (e) => {
+      const cn = e.target.closest(".community-node");
+      if (!cn) return;
+      const c = FAM.communityById(cn.dataset.id);
+      if (c && c.description) showCommunityTip(cn, c);
+    });
+    svg.addEventListener("pointerout", (e) => {
+      if (e.target.closest(".community-node")) hideCommunityTip();
     });
   }
 

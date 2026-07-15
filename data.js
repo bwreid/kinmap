@@ -25,6 +25,15 @@ const FAM = {
     { a:'marcus', b:'lena',   type:'close' },
     { a:'father', b:'pgf',    type:'cutoff' },
   ],
+  // groups (church, school, support network, ...) rendered as free-floating
+  // blobs — { id, name, description, color, size, pos:{x,y}, shapeSeed? } —
+  // size is 'small'|'medium'|'large' (engine.js's blobDiameter, default
+  // medium); pos is an absolute world-space position the user drags
+  // directly; shapeSeed is only set once "Regenerate shape" has been used
+  // (otherwise the blob's silhouette is derived from its id — see SYM's
+  // communitySeed). Unlike people, communities have no gen/rowOrder/union
+  // membership and are never touched by Layout
+  communities: [],
   // central registry of member labels — { id, icon, desc, color, iconPath } —
   // created and deleted only from the "Manage labels" screen; people
   // reference these by id (p.labelIds) rather than embedding their own copy.
@@ -34,6 +43,12 @@ const FAM = {
   labelDefs: [],
 
   byId(id){ return this.people.find(p=>p.id===id); },
+  communityById(id){ return this.communities.find(c=>c.id===id); },
+  // resolves either a person or a community id — used only by the handful
+  // of call sites that must accept both (relate-mode picker, tie lists);
+  // byId() itself stays person-only so most code keeps failing fast on a
+  // community id handed to it by mistake
+  entityById(id){ return this.byId(id) || this.communityById(id); },
   labelDef(id){ return this.labelDefs.find(l=>l.id===id); },
   addLabelDef({icon,desc,color,iconPath}){
     const l={ id:this.uid('lbl'), icon, desc, color:color||null, iconPath:iconPath||null };
@@ -115,6 +130,95 @@ const REL_BY_KEY = {};
 const SYM = (()=>{
   const R = 27;                 // half symbol size (54px)
   const STK = 2.4;              // stroke weight (refined clinical)
+  const BLOB_R = 54;            // community blob half-size (108px, ~2x a person)
+
+  // tiny string hash -> seeded PRNG, so each community's blob silhouette is
+  // unique (derived from its id) but stable across re-renders — a live
+  // Math.random() would make the shape visibly jitter on every rerender()
+  function hashSeed(str){
+    let h=2166136261;
+    for(let i=0;i<str.length;i++){ h^=str.charCodeAt(i); h=Math.imul(h,16777619); }
+    return h>>>0;
+  }
+  function mulberry32(seed){
+    return function(){
+      seed=seed+0x6D2B79F5|0;
+      let t=Math.imul(seed^seed>>>15,1|seed);
+      t=t+Math.imul(t^t>>>7,61|t)^t;
+      return ((t^t>>>14)>>>0)/4294967296;
+    };
+  }
+
+  // the per-point radius multipliers (0.86-1.16x) driving a blob's
+  // silhouette — shared by blobPath() (renders it) and blobRadiusAt() (looks
+  // up where its boundary actually sits, for tie anchoring), so both always
+  // agree on the same shape for a given seed
+  function blobMultipliers(seed){
+    const rnd=mulberry32(seed), n=10, mult=[];
+    for(let i=0;i<n;i++) mult.push(0.86+rnd()*0.3);
+    return mult;
+  }
+
+  /* gently-irregular closed outline — a ring of points at varying radii
+     around center, smoothed into a Catmull-Rom curve so community blobs
+     read as soft/organic rather than the crisp circle/rect person symbols.
+     `seed` (a community's hashed id, or its shapeSeed once regenerated)
+     picks the per-point radii, so every community gets its own silhouette,
+     deterministically re-derived on every render rather than stored */
+  function blobPath(r, seed=0){
+    const mult=blobMultipliers(seed), n=mult.length;
+    const pts=mult.map((m,i)=>{ const a=i/n*Math.PI*2; return { x:Math.cos(a)*r*m, y:Math.sin(a)*r*m }; });
+    let d=`M${pts[0].x.toFixed(1)} ${pts[0].y.toFixed(1)} `;
+    for(let i=0;i<n;i++){
+      const p0=pts[(i-1+n)%n], p1=pts[i], p2=pts[(i+1)%n], p3=pts[(i+2)%n];
+      const c1x=p1.x+(p2.x-p0.x)/6, c1y=p1.y+(p2.y-p0.y)/6;
+      const c2x=p2.x-(p3.x-p1.x)/6, c2y=p2.y-(p3.y-p1.y)/6;
+      d+=`C${c1x.toFixed(1)} ${c1y.toFixed(1)} ${c2x.toFixed(1)} ${c2y.toFixed(1)} ${p2.x.toFixed(1)} ${p2.y.toFixed(1)} `;
+    }
+    return d+'Z';
+  }
+
+  // approximate blob-boundary radius at an arbitrary angle (radians, atan2
+  // convention) — interpolates between the two nearest of blobMultipliers()'s
+  // sampled points. Not exact (the rendered curve is a Catmull-Rom spline
+  // that bows slightly between those points, rather than a straight lerp),
+  // but close enough to anchor a tie right at the visible edge in any
+  // direction, and — critically — reads the SAME seed as blobPath(), so a
+  // "Regenerate shape" click keeps the tie's connection point matched to
+  // whatever the new silhouette actually looks like
+  function blobRadiusAt(r, seed, angle){
+    const mult=blobMultipliers(seed), n=mult.length;
+    let a=angle%(Math.PI*2); if(a<0) a+=Math.PI*2;
+    const pos=a/(Math.PI*2)*n, i0=Math.floor(pos)%n, i1=(i0+1)%n, t=pos-Math.floor(pos);
+    return r*(mult[i0]+(mult[i1]-mult[i0])*t);
+  }
+
+  // the seed driving a community's blob silhouette — c.shapeSeed if the user
+  // has explicitly regenerated it ("Regenerate shape" in the edit form),
+  // else derived from the id itself so a shape is stable from creation
+  function communitySeed(c){ return c.shapeSeed!=null ? c.shapeSeed : hashSeed(c.id); }
+
+  /* community blob, centered at 0,0 — filled/stroked in the community's own
+     color via an inline style (not bare fill/stroke attributes), since a
+     plain SVG presentation attribute loses to the ".node .sym" CSS rule
+     that colors every other node symbol — same trick renderLabelIcon()
+     uses for per-label colors */
+  function communityBlob(c, size=BLOB_R*2){
+    return `<path class="blob" d="${blobPath(size/2,communitySeed(c))}" fill-opacity="0.22" style="fill:${c.color};stroke:${c.color}"/>`;
+  }
+
+  // boundary radius of c's actual blob, in the direction of `angle` — used
+  // by engine.js's cornerAnchor() to anchor emotional ties right at the
+  // blob's visible edge instead of a fixed circle approximation
+  function communityRadiusAt(c, size, angle){
+    return blobRadiusAt(size/2, communitySeed(c), angle);
+  }
+
+  /* mini standalone blob for the relate-mode picker chip (mirrors mini(p,size)) */
+  function communityMini(c, size=22){
+    const r=size/2-2;
+    return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}"><g transform="translate(${size/2},${size/2})"><path d="${blobPath(r,communitySeed(c))}" fill-opacity="0.3" stroke-width="1.6" style="fill:${c.color};stroke:${c.color}"/></g></svg>`;
+  }
 
   /* person shape centered at 0,0, drawn with currentColor stroke */
   function shape(p){
@@ -258,5 +362,5 @@ const SYM = (()=>{
     }
   }
 
-  return { R, STK, shape, mini, relMini, emotional };
+  return { R, STK, BLOB_R, shape, mini, relMini, emotional, communityBlob, communityMini, communityRadiusAt };
 })();

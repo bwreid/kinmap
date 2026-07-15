@@ -3,6 +3,10 @@
    ============================================================ */
 
 const LC = { S:54, COUPLE:118, NODEW:112, SIBGAP:46, ROWH:190, TOPY:110, CENTER:640, SIDEGAP:80, SNAP:6 };
+// community blob diameter, as a multiple of a member's own size (LC.S) —
+// small/medium/large per the community's own c.size (defaults to medium)
+const COMMUNITY_SIZE_MULT = { small:2, medium:3, large:4 };
+function blobDiameter(size){ return LC.S*(COMMUNITY_SIZE_MULT[size]||COMMUNITY_SIZE_MULT.medium); }
 let POS = {};   // id -> {x,y}
 let SIDE = {};  // id -> -1 (paternal-ish) | +1 (maternal-ish) | undefined (unassigned), relative to the nearest ancestor fork
 let BUSX = {};  // union id -> the x its children-bus actually drops from (raw midpoint + manual busOffset, already snap-corrected)
@@ -735,9 +739,22 @@ const View = (()=>{
      so for circles the anchor is pulled in along that same diagonal to sit
      right on the circle's edge instead of floating past it. */
   function cornerAnchor(id, pos, other, sameGen){
-    const R=LC.S/2;
+    const community = FAM.communityById(id);
     const sx = other.x>=pos.x ? 1 : -1;
     const sy = sameGen ? -1 : (other.y>=pos.y ? 1 : -1);
+    if(community){
+      // anchor exactly on the blob's own (randomly-shaped) boundary in this
+      // corner's direction, rather than assuming a fixed circle — reads the
+      // same seed SYM.communityBlob renders with, so a "Regenerate shape"
+      // click keeps the tie's connection point matched to the new outline
+      const angle = Math.atan2(sy, sx);
+      const rad = SYM.communityRadiusAt(community, blobDiameter(community.size), angle);
+      return { x:pos.x+Math.cos(angle)*rad, y:pos.y+Math.sin(angle)*rad };
+    }
+    // circle symbols (female members) have no real corner: the square's
+    // diagonal corner point sits R√2 out, well outside a circle of radius R,
+    // so pull the anchor in along that same diagonal to land on its edge
+    const R = LC.S/2;
     const o = FAM.byId(id)?.sex==='f' ? R/Math.SQRT2 : R;
     return { x:pos.x+sx*o, y:pos.y+sy*o };
   }
@@ -745,8 +762,10 @@ const View = (()=>{
   function emotional(){
     return FAM.rels.map(r=>{ const a=POS[r.a], b=POS[r.b]; if(!a||!b) return '';
       // ties within a generation bow upward to dodge intervening members;
-      // ties that cross generations (up/down) run straight instead
-      const sameGen = FAM.byId(r.a)?.gen===FAM.byId(r.b)?.gen;
+      // ties that cross generations (up/down), or touch a community (which
+      // has no gen at all), run straight instead
+      const ga=FAM.byId(r.a)?.gen, gb=FAM.byId(r.b)?.gen;
+      const sameGen = ga!=null && gb!=null && ga===gb;
       const pa=cornerAnchor(r.a,a,b,sameGen), pb=cornerAnchor(r.b,b,a,sameGen);
       const bow=sameGen?relBow(pa,pb,r.a,r.b):0;
       return `<g class="emo-g" data-rel="${r.a}__${r.b}">${SYM.emotional(r.type,pa.x,pa.y,pb.x,pb.y,bow)}</g>`; }).join('');
@@ -810,6 +829,75 @@ const View = (()=>{
         ${renderSubLine(sub, (p.labelIds||[]).map(id=>FAM.labelDef(id)).filter(Boolean), LC.S/2+(p.index?54:36))}
         ${badge}
       </g>`; }).join('');
+  }
+
+  // the community's name, centered in its blob — font-size shrinks to fit
+  // within the blob's width (minus generous padding) instead of overflowing
+  // past its edge when a long name lands on a small blob
+  // greedy word-wrap at an estimated (no live DOM measurement) chars-per-line
+  // budget — same rough-estimate approach renderNameLine/renderSubLine use
+  function wrapNameLines(name, maxChars){
+    const words=name.split(/\s+/).filter(Boolean);
+    const lines=[]; let cur='';
+    words.forEach(w=>{
+      const cand = cur ? cur+' '+w : w;
+      if(cand.length<=maxChars || !cur) cur=cand;
+      else { lines.push(cur); cur=w; }
+    });
+    if(cur) lines.push(cur);
+    return lines.length ? lines : [''];
+  }
+  // small/medium/large blobs get progressively more lines to wrap into
+  // (2/3/4) — wrapping first lets the font stay larger than a single-line
+  // shrink-to-fit would allow; only shrinks font as a last resort, if it
+  // still doesn't fit the line budget even at the smallest wrap width
+  const COMMUNITY_NAME_MAX_LINES = { small:2, medium:3, large:4 };
+  function communityNameLabel(c, d){
+    const maxLines = COMMUNITY_NAME_MAX_LINES[c.size] || COMMUNITY_NAME_MAX_LINES.medium;
+    const pad=28, maxW=Math.max(d-pad,20), charW=7.6, base=14, minFs=9;
+    let fs=base, lines=[];
+    for(let tries=0; tries<6; tries++){
+      const maxChars=Math.max(3, Math.floor(maxW/(charW*fs/base)));
+      lines=wrapNameLines(c.name, maxChars);
+      if(lines.length<=maxLines || fs<=minFs) break;
+      fs=Math.max(minFs, fs-1.5);
+    }
+    if(lines.length>maxLines){
+      lines=lines.slice(0,maxLines);
+      lines[maxLines-1]=lines[maxLines-1].replace(/.{0,3}$/,'')+'…';
+    }
+    const lh=fs*1.2, baseline=fs*0.3;
+    const firstDy=-(lines.length-1)*lh/2+baseline;
+    const tspans=lines.map((ln,i)=>`<tspan x="0" dy="${i===0?firstDy.toFixed(1):lh.toFixed(1)}">${ln}</tspan>`).join('');
+    return `<text class="nlbl" text-anchor="middle" style="font-size:${fs}px">${tspans}</text>`;
+  }
+
+  // free-floating community blobs — POS entries for these are written
+  // directly from c.pos in canvas() (never touched by Layout.compute()),
+  // so this just reads them like nodes() reads person positions
+  function communities(){
+    return FAM.communities.map(c=>{ const pt=POS[c.id]; if(!pt) return '';
+      const d=blobDiameter(c.size), r=d/2;
+      return `<g class="node community-node" data-id="${c.id}" data-kind="community" transform="translate(${pt.x},${pt.y})">
+        <rect class="halo" x="${-r-8}" y="${-r-8}" width="${d+16}" height="${d+16}" rx="20"/>
+        <g class="sym">${SYM.communityBlob(c,d)}</g>
+        ${communityNameLabel(c,d)}
+      </g>`; }).join('');
+  }
+
+  // extends Layout.compute()'s own (people/union-only) bounds to also cover
+  // each community blob's footprint, so View.fit() frames dragged-out
+  // communities too — computed here rather than in Layout.compute() itself,
+  // since communities are deliberately outside that algorithm entirely
+  function communityBounds(b){
+    if(!FAM.communities.length) return b;
+    let { minX, maxX, minY, maxY } = b;
+    FAM.communities.forEach(c=>{
+      const r=blobDiameter(c.size)/2;
+      minX=Math.min(minX,c.pos.x-r); maxX=Math.max(maxX,c.pos.x+r);
+      minY=Math.min(minY,c.pos.y-r); maxY=Math.max(maxY,c.pos.y+r);
+    });
+    return { minX, maxX, minY, maxY };
   }
 
   /* ---- export: a clean, standalone rendering of the genogram ----
@@ -1060,9 +1148,12 @@ const View = (()=>{
 
   function canvas(){
     lastBounds = Layout.compute();
+    FAM.communities.forEach(c=>{ POS[c.id]=c.pos; });
+    lastBounds = communityBounds(lastBounds);
     world.innerHTML =
       `<g class="layer-struct">${structural()}</g>`+
       `<g class="layer-nodes">${nodes()}</g>`+
+      `<g class="layer-communities">${communities()}</g>`+
       `<g class="layer-emo">${emotional()}</g>`;
     selection();
     highlight();

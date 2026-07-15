@@ -21,6 +21,7 @@ const Storage = (() => {
           busOffset: u.busOffset
         })),
         rels: FAM.rels.map(r => ({ ...r })),
+        communities: FAM.communities.map(c => ({ ...c, pos: { ...c.pos } })),
         labelDefs: FAM.labelDefs.map(l => ({ ...l }))
       }
     };
@@ -64,6 +65,7 @@ const Storage = (() => {
     FAM.people    = d.people.map(p => ({ ...p }));
     FAM.unions    = d.unions.map(u => ({ ...u, partners: [...u.partners], children: [...u.children] }));
     FAM.rels      = d.rels.map(r => ({ ...r }));
+    FAM.communities = (d.communities || []).map(c => ({ ...c, pos: { ...c.pos } }));
     FAM.labelDefs = (d.labelDefs || []).map(l => ({ ...l }));
     migrateLegacyLabels();
     migrateLegacyCustomIcons(d);
