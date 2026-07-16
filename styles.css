@@ -459,6 +459,11 @@ body.editing .bus-handle {
 body.editing .bus-handle:active {
   cursor: grabbing;
 }
+body.editing #stage-canvas,
+body.editing #canvas text {
+  user-select: none;
+  -webkit-user-select: none;
+}
 
 /* floating stage controls */
 .zoomctl {
