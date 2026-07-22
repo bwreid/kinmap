@@ -145,6 +145,10 @@ button {
 .tbtn:hover {
   background: var(--panel-2);
 }
+.tbtn[disabled] {
+  opacity: 0.45;
+  pointer-events: none;
+}
 .tbtn.primary {
   background: var(--accent);
   border-color: var(--accent-d);

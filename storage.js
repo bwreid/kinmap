@@ -7,6 +7,14 @@ const Storage = (() => {
   const KEY_IDX  = `${NS}:saves:index`;
   const entryKey = k => `${NS}:saves:entry:${k}`;
 
+  // in-memory undo/redo history — session-only, not persisted
+  let hist = [];
+  let histPtr = -1;
+  let suppressHist = false;
+  let historyListener = null;
+  const HIST_MAX = 100;
+  function setHistoryListener(fn) { historyListener = fn; }
+
   function serialize(name) {
     return {
       v: 1,
@@ -73,9 +81,51 @@ const Storage = (() => {
 
   function autosave() {
     try { localStorage.setItem(KEY_AUTO, JSON.stringify(serialize('autosave'))); } catch (_) {}
+    pushHistory();
   }
   function loadAutosave() {
     try { const s = localStorage.getItem(KEY_AUTO); return s ? JSON.parse(s) : null; } catch (_) { return null; }
+  }
+
+  // history: serialize() is only a shallow per-item copy (p.labelIds/p.notes
+  // etc. are mutated in place elsewhere), so snapshots need a real deep clone
+  // to avoid aliasing live data and corrupting past history entries
+  function pushHistory() {
+    if (suppressHist) return;
+    hist = hist.slice(0, histPtr + 1);
+    hist.push(structuredClone(serialize('autosave').data));
+    if (hist.length > HIST_MAX) hist.shift();
+    histPtr = hist.length - 1;
+    if (historyListener) historyListener();
+  }
+  function initHistory() {
+    hist = [structuredClone(serialize('autosave').data)];
+    histPtr = 0;
+    if (historyListener) historyListener();
+  }
+  function canUndo() { return histPtr > 0; }
+  function canRedo() { return histPtr < hist.length - 1; }
+  function restoreFromHistory() {
+    suppressHist = true;
+    try {
+      hydrate({ data: hist[histPtr] });
+      localStorage.setItem(KEY_AUTO, JSON.stringify(serialize('autosave')));
+    } catch (_) {} finally {
+      suppressHist = false;
+    }
+    if (historyListener) historyListener();
+  }
+  function undo() {
+    if (!canUndo()) return false;
+    histPtr--;
+    restoreFromHistory();
+    return true;
+  }
+  function redo() {
+    if (!canRedo()) return false;
+    histPtr++;
+    restoreFromHistory();
+    return true;
   }
 
   function listSaves() {
@@ -135,5 +185,5 @@ const Storage = (() => {
     }).join('');
   }
 
-  return { serialize, hydrate, autosave, loadAutosave, listSaves, saveNamed, loadNamed, deleteNamed, exportJSON, renderSavesList };
+  return { serialize, hydrate, autosave, loadAutosave, listSaves, saveNamed, loadNamed, deleteNamed, exportJSON, renderSavesList, initHistory, undo, redo, canUndo, canRedo, setHistoryListener };
 })();

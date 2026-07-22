@@ -26,6 +26,8 @@ const App = (() => {
         Storage.hydrate(saved);
       } catch (_) {}
     }
+    Storage.setHistoryListener(updUndoRedoBtns);
+    Storage.initHistory();
     View.init();
     rerender();
     View.fit();
@@ -33,6 +35,10 @@ const App = (() => {
     applyEmoVisibility();
     applyNotesVisibility();
     applyHighlightVisibility();
+  }
+  function updUndoRedoBtns() {
+    document.getElementById("undo-btn").disabled = !Storage.canUndo();
+    document.getElementById("redo-btn").disabled = !Storage.canRedo();
   }
   function rerender() {
     View.canvas();
@@ -1126,6 +1132,18 @@ const App = (() => {
       if (a === "new") {
         newGenogram();
       }
+      if (a === "undo") {
+        if (Storage.undo()) {
+          deselectSilent();
+          rerender();
+        }
+      }
+      if (a === "redo") {
+        if (Storage.redo()) {
+          deselectSilent();
+          rerender();
+        }
+      }
       if (a === "save") {
         if (FAM.people.length === 0) {
           flash("Nothing to save");
@@ -1683,6 +1701,17 @@ const App = (() => {
       p.rowOffset = (p.rowOffset || 0) + delta;
       rerender();
       Storage.autosave();
+    });
+    // global undo/redo shortcuts — independent of mode/selection
+    document.addEventListener("keydown", (e) => {
+      if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z") return;
+      if (e.target.closest("input,textarea,select,[contenteditable]")) return;
+      e.preventDefault();
+      const ok = e.shiftKey ? Storage.redo() : Storage.undo();
+      if (ok) {
+        deselectSilent();
+        rerender();
+      }
     });
   }
   function bindDrawer() {
