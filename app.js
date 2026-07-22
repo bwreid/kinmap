@@ -361,6 +361,9 @@ const App = (() => {
       <div class="sec-h">Emotional ties <span class="cnt">${rels.length}</span></div>
       <div class="rel-list">${relRows}</div>
       <button class="btn block" data-act="relate-from">＋ Add relationship</button>
+      <div class="rule"></div>
+      <div class="sec-h">Notes <span class="cnt">${(c.notes || []).length}</span></div>
+      ${renderNotesSection(c)}
     </div>
     <div class="drawer-foot">
       <button class="btn ghost danger" data-act="delete-community">Delete</button>
@@ -1551,7 +1554,7 @@ const App = (() => {
         openDrawer("inspect");
       }
       if (a === "edit-note") {
-        const p = FAM.byId(state.selected);
+        const p = FAM.entityById(state.selected);
         const n = p && (p.notes || []).find((x) => x.id === b.dataset.id);
         if (!n) return;
         noteDraft = { id: n.id, text: n.text, color: n.color || null };
@@ -1567,7 +1570,7 @@ const App = (() => {
         openDrawer("inspect");
       }
       if (a === "save-note") {
-        const p = FAM.byId(state.selected);
+        const p = FAM.entityById(state.selected);
         if (!p || !noteDraft) return;
         const text = noteDraft.text.trim();
         if (!text) {
@@ -1590,7 +1593,7 @@ const App = (() => {
         Storage.autosave();
       }
       if (a === "remove-note") {
-        const p = FAM.byId(state.selected);
+        const p = FAM.entityById(state.selected);
         if (!p) return;
         p.notes = (p.notes || []).filter((n) => n.id !== b.dataset.id);
         if (noteDraft && noteDraft.id === b.dataset.id) noteDraft = null;
@@ -1794,7 +1797,16 @@ const App = (() => {
   /* ---------- community hover popup (same mechanism as notes, above) ---------- */
   function showCommunityTip(el, c) {
     const tip = document.getElementById("community-tip");
-    tip.innerHTML = `<div class="note-tip-h">${escapeHtml(c.name)}</div><div class="note-tip-row"><span class="note-tip-text">${renderNoteText(c.description)}</span></div>`;
+    const descRow = c.description
+      ? `<div class="note-tip-row"><span class="note-tip-text">${renderNoteText(c.description)}</span></div>`
+      : "";
+    const noteRows = (c.notes || [])
+      .map(
+        (n) =>
+          `<div class="note-tip-row"><span class="note-tip-sw" style="${n.color ? `background:${n.color}` : ""}"></span><span class="note-tip-text">${renderNoteText(n.text)}</span></div>`,
+      )
+      .join("");
+    tip.innerHTML = `<div class="note-tip-h">${escapeHtml(c.name)}</div>${descRow}${noteRows}`;
     const stageRect = document
       .getElementById("stage-canvas")
       .getBoundingClientRect();
@@ -2147,7 +2159,8 @@ const App = (() => {
       const cn = e.target.closest(".community-node");
       if (!cn) return;
       const c = FAM.communityById(cn.dataset.id);
-      if (c && c.description) showCommunityTip(cn, c);
+      if (c && (c.description || (c.notes && c.notes.length)))
+        showCommunityTip(cn, c);
     });
     svg.addEventListener("pointerout", (e) => {
       if (e.target.closest(".community-node")) hideCommunityTip();
